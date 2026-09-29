@@ -1,0 +1,4 @@
+{"name":"sih26237-provenance","version":"0.2.0","type":"module","private":true,
+ "engines":{"node":">=22.13"},
+ "scripts":{"start":"node server.js","test":"node --no-warnings --test --test-concurrency=1 \"test/*.test.js\"","reset":"node server.js --reset"},
+ "dependencies":{}}
