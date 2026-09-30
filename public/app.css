@@ -290,20 +290,152 @@ main {
 }
 
 /* ==========================================================================
-   FORM CONTROLS & BUTTONS
+   FORM CONTROLS, INPUTS, SELECTS, CHECKBOXES & BUTTONS
    ========================================================================== */
 
-button, input, select, textarea {
+button, input:not([type="checkbox"]):not([type="radio"]), select, textarea {
   background: var(--p2);
   color: var(--tx);
   border: 1px solid var(--bd);
   border-radius: 6px;
-  padding: 7px 12px;
+  padding: 8px 12px;
   font-size: 13px;
   font-family: inherit;
-  transition: border-color 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease, color 0.14s ease;
+  vertical-align: middle;
 }
 
+input:not([type="checkbox"]):not([type="radio"]), select, textarea {
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+select {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%237d8ea3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+}
+
+select option {
+  background: var(--pn);
+  color: var(--tx);
+  padding: 8px;
+}
+
+input[type="file"] {
+  background: var(--pn-elevated);
+  border: 1px dashed var(--bd-light);
+  color: var(--mu);
+  font-size: 12px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+input[type="file"]::-webkit-file-upload-button {
+  background: var(--p2);
+  color: var(--tx);
+  border: 1px solid var(--bd);
+  border-radius: 4px;
+  padding: 4px 10px;
+  margin-right: 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+input[type="file"]::-webkit-file-upload-button:hover {
+  background: var(--p2-hover);
+  border-color: var(--ac);
+  color: var(--ac);
+}
+
+/* Custom Styled Checkboxes & Radio */
+input[type="checkbox"], input[type="radio"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 17px;
+  height: 17px;
+  margin: 0 7px 0 0;
+  vertical-align: -3px;
+  background: var(--p2);
+  border: 1.5px solid var(--bd-light);
+  border-radius: 4px;
+  cursor: pointer;
+  position: relative;
+  display: inline-grid;
+  place-content: center;
+  transition: all 0.15s ease-in-out;
+  flex-shrink: 0;
+}
+
+input[type="radio"] {
+  border-radius: 50%;
+}
+
+input[type="checkbox"]:hover, input[type="radio"]:hover {
+  border-color: var(--ac);
+  background: var(--p2-hover);
+}
+
+input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
+  outline: none;
+  border-color: var(--bd-focus);
+  box-shadow: 0 0 0 2px var(--ac-bg);
+}
+
+input[type="checkbox"]:checked {
+  background: var(--ac);
+  border-color: var(--ac);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.4);
+}
+
+input[type="checkbox"]:checked::after {
+  content: "";
+  width: 9px;
+  height: 5px;
+  border-left: 2px solid #04121a;
+  border-bottom: 2px solid #04121a;
+  transform: rotate(-45deg) translate(0.5px, -0.5px);
+  display: block;
+}
+
+input[type="radio"]:checked {
+  background: var(--ac);
+  border-color: var(--ac);
+}
+
+input[type="radio"]:checked::after {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #04121a;
+  display: block;
+}
+
+label {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: var(--tx);
+  transition: color 0.15s ease;
+  margin-right: 14px;
+  margin-bottom: 6px;
+}
+
+label:hover {
+  color: var(--ac);
+}
+
+/* Button Foundation */
 button {
   cursor: pointer;
   font-weight: 600;
@@ -332,11 +464,18 @@ button:focus-visible {
   box-shadow: 0 0 0 2px var(--ac-bg);
 }
 
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 /* Primary Action Button */
 button.p {
   background: var(--ac);
   color: #04121a;
   border-color: var(--ac);
+  font-weight: 700;
   box-shadow: 0 1px 4px rgba(56, 189, 248, 0.28);
 }
 
@@ -344,7 +483,7 @@ button.p:hover {
   background: var(--ac-hover);
   border-color: var(--ac-hover);
   color: #04121a;
-  box-shadow: 0 2px 8px rgba(56, 189, 248, 0.38);
+  box-shadow: 0 2px 10px rgba(56, 189, 248, 0.42);
 }
 
 /* Danger / Destructive Action Button */
@@ -361,9 +500,9 @@ button.d:hover {
   box-shadow: 0 2px 8px rgba(248, 113, 113, 0.35);
 }
 
-/* Compact Table/Secondary Action Button */
+/* Compact Table / Inline / Secondary Action Button */
 button.s {
-  padding: 3px 9px;
+  padding: 4px 10px;
   font-size: 11.5px;
   border-radius: 4px;
   font-weight: 500;
@@ -382,6 +521,7 @@ input::placeholder, textarea::placeholder {
 
 textarea {
   resize: vertical;
+  line-height: 1.5;
 }
 
 /* ==========================================================================
@@ -511,6 +651,16 @@ td, th {
   vertical-align: middle;
 }
 
+td:first-child:has(input[type="checkbox"]), th:first-child {
+  width: 32px;
+  text-align: center;
+}
+
+td input[type="checkbox"] {
+  margin: 0 auto;
+  display: block;
+}
+
 th {
   font-size: 10px;
   color: var(--mu);
@@ -625,22 +775,77 @@ pre {
    ========================================================================== */
 
 .login {
-  max-width: 380px;
-  margin: 12vh auto;
+  max-width: 400px;
+  margin: 10vh auto;
   background: var(--pn);
   border: 1px solid var(--bd);
   border-radius: 8px;
-  padding: 30px 26px;
+  padding: 30px 28px;
   box-shadow: var(--shadow-md);
 }
 
 .login input {
   width: 100%;
-  margin: 8px 0;
+  margin: 7px 0 10px;
 }
 
 .login button {
   margin-top: 6px;
+}
+
+/* ==========================================================================
+   FORM COMPONENT & LAYOUT ALIGNMENTS
+   ========================================================================== */
+
+#new-doc-card input, #new-doc-card select {
+  margin-bottom: 8px;
+}
+
+#new-doc-card #dn {
+  width: min(340px, 100%);
+  margin-right: 8px;
+}
+
+#new-doc-card #dc {
+  min-width: 160px;
+}
+
+#recipients-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 10px 14px;
+  margin: 10px 0 14px;
+  background: var(--pn-elevated);
+  border: 1px solid var(--bd-subtle);
+  border-radius: 6px;
+}
+
+#recipients-group label {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tx);
+  gap: 6px;
+}
+
+#ak, #an {
+  margin-right: 8px;
+  margin-bottom: 8px;
+  max-width: 240px;
+}
+
+#tid {
+  width: 140px;
+  margin-right: 8px;
+}
+
+#f {
+  margin-right: 8px;
+  margin-bottom: 6px;
 }
 
 /* ==========================================================================
