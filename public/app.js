@@ -42,19 +42,19 @@ const TOUR_STEPS = [
     why: "All document payloads are encrypted with AES-256-GCM before exiting local custody."
   },
   {
-    target: "#dn",
+    target: "#new-doc-card",
     fallback: "main .c",
     view: "docs",
     title: "Create & Distribute Document",
-    desc: "Senders name, classify, and input plaintext operational briefs here for cryptographic sealing.",
+    desc: "Senders enter document names, security classifications, and plaintext operational briefs in this form for cryptographic sealing.",
     why: "Generates a single-use 256-bit Content Encryption Key (CEK) bound to document version and hash."
   },
   {
-    target: ".rc",
-    fallback: "#dc",
+    target: "#recipients-group",
+    fallback: "#new-doc-card",
     view: "docs",
     title: "Authorized Recipient Selection",
-    desc: "Select which recipients are permitted to access this document.",
+    desc: "Check off authorized personnel permitted to decrypt this document.",
     why: "Creates SENDER-signed AUTHORIZATION transactions on the distributed ledger and establishes ML-KEM-768 key capsules."
   },
   {
@@ -451,7 +451,7 @@ const VIEW = {
     return `<h2>${R ? 'My secure documents' : 'Documents'}</h2><p class="sub">Content is AES-256-GCM encrypted; per-recipient key establishment is ML-KEM-768 (simulated); authorizations are signed by the sender and recorded on the ledger.</p>
     ${OUT?.decrypt ? `<div class="res ok"><div class="l ok">Decryption complete</div><table>${kv('Session', `<span class="m">${e(OUT.decrypt.sessionId)}</span>`)}${kv('Watermark', `<span class="m">${e(OUT.decrypt.watermarkId)}</span> <span class="mu">(invisible, simulated)</span>`)}${kv('Transaction / block', `<span class="m">${e(OUT.decrypt.transactionId)} · #${OUT.decrypt.block} · ${OUT.decrypt.approvals} approvals</span>`)}${kv('Signing key', `<span class="m">${e(OUT.decrypt.keyId)}</span>`)}</table>${evBox(OUT.decrypt.evidence)}<pre>${e(OUT.decrypt.representation)}</pre></div>` : ''}
     ${OUT?.err ? `<div class="res er"><b class="er">${e(OUT.err)}</b></div>` : ''}
-    ${ME.role === 'SENDER' ? `<div class="c"><h3>New document</h3><input id="dn" placeholder="Name" maxlength="120"> <select id="dc"><option>RESTRICTED</option><option>CONFIDENTIAL</option><option>SECRET</option></select><br><textarea id="dt" rows="4" style="width:100%;margin:8px 0" placeholder="Content"></textarea>${d.recipients.map(r => `<label><input type="checkbox" class="rc" value="${e(r.id)}"> ${e(r.name)} </label>`).join('')}<br><br><button class="p" data-a="newdoc">Encrypt, authorize &amp; anchor</button></div>` : ''}
+    ${ME.role === 'SENDER' ? `<div class="c" id="new-doc-card"><h3>New document</h3><input id="dn" placeholder="Name" maxlength="120"> <select id="dc"><option>RESTRICTED</option><option>CONFIDENTIAL</option><option>SECRET</option></select><br><textarea id="dt" rows="4" style="width:100%;margin:8px 0" placeholder="Content"></textarea><div id="recipients-group" style="margin:4px 0">${d.recipients.map(r => `<label><input type="checkbox" class="rc" value="${e(r.id)}"> ${e(r.name)} </label>`).join('')}</div><br><button class="p" data-a="newdoc">Encrypt, authorize &amp; anchor</button></div>` : ''}
     <div class="g2">${d.docs.map(x => `<div class="c"><div class="l wr">${e(x.cls)}</div><h3 style="font-size:16px;margin:4px 0">${e(x.name)}</h3><div class="m mu">${e(x.id)} · v${e(x.version)} · ${e(x.enc)}<br>content hash ${sh(x.hash)}</div><p>Decryptions: <b>${x.decryptions}</b></p>${R ? `<button class="p" data-a="dec" data-v="${e(x.id)}">Decrypt</button>` : `<div class="l">Authorized recipients</div>${x.authorized.map(a => `<div class="m">${e(a.id)} ${e(a.name)}</div>`).join('') || '<span class="mu">none</span>'}`}</div>`).join('') || '<div class="c mu">No documents available to this account.</div>'}</div>
     ${R ? `<div class="c"><h3>Access test</h3><p class="mu">Try to decrypt a document by ID. The backend decides; nothing is created on refusal.</p><input id="tid" placeholder="DOC-0001" maxlength="8"> <button data-a="try">Attempt decrypt</button></div>` : ''}`;
   },
