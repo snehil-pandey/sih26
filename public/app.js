@@ -25,72 +25,245 @@ let TOUR_ACTIVE = false;
 let TOUR_STEP = 0;
 let TOUR_MODAL = null; // 'welcome' | 'done' | null
 
-const TOUR_STEPS = [
-  {
-    target: "main .c:first-of-type",
-    fallback: "aside",
-    view: "dash",
-    title: "Consensus & Operations Workspace",
-    desc: "Welcome to your defense terminal console. This dashboard monitors real-time consensus agreement across all air-gapped validator nodes.",
-    why: "Provides immediate visibility into DLT quorum health, node synchronization, and active chain head."
-  },
-  {
-    target: "button[data-v='docs']",
-    fallback: "aside",
-    view: "dash",
-    title: "Protected Documents Workspace",
-    desc: "Navigate here to view confidential briefs, manage cryptographic protections, or decrypt authorized files.",
-    why: "All document payloads are encrypted with AES-256-GCM before exiting local custody."
-  },
-  {
-    target: "#new-doc-card",
-    fallback: "main .c",
-    view: "docs",
-    title: "Create & Distribute Document",
-    desc: "Senders enter document names, security classifications, and plaintext operational briefs in this form for cryptographic sealing.",
-    why: "Generates a single-use 256-bit Content Encryption Key (CEK) bound to document version and hash."
-  },
-  {
-    target: "#recipients-group",
-    fallback: "#new-doc-card",
-    view: "docs",
-    title: "Authorized Recipient Selection",
-    desc: "Check off authorized personnel permitted to decrypt this document.",
-    why: "Creates SENDER-signed AUTHORIZATION transactions on the distributed ledger and establishes ML-KEM-768 key capsules."
-  },
-  {
-    target: "button[data-v='led']",
-    fallback: "aside",
-    view: "dash",
-    title: "Distributed Provenance Ledger",
-    desc: "Review immutable blocks, key registrations, authorizations, and recipient decryption transactions.",
-    why: "Maintained independently by 5 air-gapped validator SQLite nodes to prevent unilateral history alteration."
-  },
-  {
-    target: "button[data-v='val']",
-    fallback: "aside",
-    view: "dash",
-    title: "Validator Network & Consensus",
-    desc: "Inspect live node states, synchronization health, and quorum agreements across the 5 validator nodes.",
-    why: "Blocks only commit when a verified majority (at least 3 of 5 nodes) sign Ed25519 approvals."
-  },
-  {
-    target: "button[data-v='inv']",
-    fallback: "aside",
-    view: "dash",
-    title: "Forensic Attribution Lab",
-    desc: "Upload or select an anonymous leaked text artifact to recover hidden zero-width watermarks and verify ledger evidence.",
-    why: "Reconstructs mathematical proof back to the exact recipient without requiring investigator assumptions."
-  },
-  {
-    target: ".top",
-    fallback: "main",
-    view: "dash",
-    title: "Operator Session & Terminal Controls",
-    desc: "Displays active cryptographic mode, military UTC time ticker, current operator identity, role permissions, and tour replay controls.",
-    why: "Ensures complete session accountability and audit logging."
-  }
-];
+const TOUR_STEPS_BY_ROLE = {
+  SENDER: [
+    {
+      target: "main .c:first-of-type",
+      fallback: "aside",
+      view: "dash",
+      title: "Sender Command Center",
+      desc: "Welcome Commander. This dashboard tracks real-time DLT consensus health across all 5 validator nodes and summarizes your document lifecycle metrics.",
+      why: "Ensures you only authorize document distributions when independent validator nodes are synchronized and healthy."
+    },
+    {
+      target: "button[data-v='docs']",
+      fallback: "aside",
+      view: "dash",
+      title: "Documents Workspace",
+      desc: "Access the document hub to upload, encrypt, and authorize defense operational briefs for specific recipients.",
+      why: "Documents are encrypted at rest with AES-256-GCM before ever leaving local custody."
+    },
+    {
+      target: "#new-doc-card",
+      fallback: "main .c",
+      view: "docs",
+      title: "Create & Distribute Document",
+      desc: "Enter document name, security classification (RESTRICTED, CONFIDENTIAL, SECRET), and plaintext content into this sealing enclave.",
+      why: "Generates a single-use 256-bit Content Encryption Key (CEK) bound to document version and cryptographic SHA-256 hash."
+    },
+    {
+      target: "#recipients-group",
+      fallback: "#new-doc-card",
+      view: "docs",
+      title: "Authorized Recipient Selection",
+      desc: "Check off authorized personnel permitted to decrypt this document.",
+      why: "Creates SENDER-signed AUTHORIZATION transactions on the distributed ledger and establishes ML-KEM-768 key capsules."
+    },
+    {
+      target: "button[data-v='sess']",
+      fallback: "aside",
+      view: "docs",
+      title: "Decryption Sessions & Watermarks",
+      desc: "Inspect live recipient access sessions. Each time an authorized recipient decrypts, an individual session and watermark is generated.",
+      why: "Allows you to compare sessions side-by-side to verify unique invisible watermarking."
+    },
+    {
+      target: "button[data-v='led']",
+      fallback: "aside",
+      view: "docs",
+      title: "Distributed Provenance Ledger",
+      desc: "Review immutable blocks, key registrations, authorizations, and recipient decryption transactions.",
+      why: "Maintained independently by 5 air-gapped validator SQLite nodes to prevent unilateral history alteration."
+    },
+    {
+      target: "button[data-v='val']",
+      fallback: "aside",
+      view: "docs",
+      title: "Validator Consensus Status",
+      desc: "Inspect live node states, synchronization health, and quorum agreements across the 5 validator nodes.",
+      why: "Blocks only commit when a verified majority (at least 3 of 5 nodes) sign Ed25519 approvals."
+    },
+    {
+      target: ".top",
+      fallback: "main",
+      view: "dash",
+      title: "Sender Console Controls",
+      desc: "Displays active cryptographic mode, military UTC time ticker, current operator identity, role permissions, and tour replay controls.",
+      why: "Ensures complete session accountability and audit logging."
+    }
+  ],
+  RECIPIENT: [
+    {
+      target: "main .c:first-of-type",
+      fallback: "aside",
+      view: "dash",
+      title: "Recipient Command Center",
+      desc: "Welcome. This workspace confirms that the defense ledger is in consensus and displays your authorized document count and decryption activity.",
+      why: "Guarantees that your access attempts are evaluated against verified, quorum-backed ledger states."
+    },
+    {
+      target: "button[data-v='docs']",
+      fallback: "aside",
+      view: "dash",
+      title: "My Secure Documents",
+      desc: "View confidential documents that have been specifically authorized for your identity by senders.",
+      why: "Only documents where a valid AUTHORIZATION transaction exists on the ledger can be decrypted by your account."
+    },
+    {
+      target: "main .g2 .c:first-of-type",
+      fallback: "main .c",
+      view: "docs",
+      title: "Document Decryption & Evidence",
+      desc: "Click 'Decrypt' on an authorized document. The enclave unwraps the key capsule, renders the operational brief, and injects a traceable watermark.",
+      why: "Your device automatically signs a PROVENANCE transaction with ML-DSA-65 committing your decryption to the ledger."
+    },
+    {
+      target: "button[data-v='sess']",
+      fallback: "aside",
+      view: "docs",
+      title: "My Decryption Sessions",
+      desc: "Review all decryption sessions performed by your account, including unique watermark identifiers and ledger block anchors.",
+      why: "Provides personal auditability so you know exactly what provenance records exist under your cryptographic identity."
+    },
+    {
+      target: "button[data-v='id']",
+      fallback: "aside",
+      view: "docs",
+      title: "Cryptographic Identity & Key Rotation",
+      desc: "Inspect your public key registration (ML-DSA-65 / ML-KEM-768) and rotate your active key pair when required by security policy.",
+      why: "Rotated keys remain linked on the ledger, ensuring historical decryptions continue to verify mathematically without breaking attribution."
+    },
+    {
+      target: ".top",
+      fallback: "main",
+      view: "dash",
+      title: "Recipient Terminal Status",
+      desc: "Displays active encryption mode, live UTC clock, authenticated operator credentials, and the replay tour button.",
+      why: "Ensures you are operating inside an authenticated, traceable defense enclave session."
+    }
+  ],
+  INVESTIGATOR: [
+    {
+      target: "main .c:first-of-type",
+      fallback: "aside",
+      view: "dash",
+      title: "Investigator Command Center",
+      desc: "Welcome Investigator. This dashboard displays system-wide forensic investigation counts, verified attributions, and validator consensus health.",
+      why: "Forensic attribution relies on querying uncorrupted, majority-verified ledger blocks across all 5 validator nodes."
+    },
+    {
+      target: "button[data-v='inv']",
+      fallback: "aside",
+      view: "dash",
+      title: "Forensic Investigation Enclave",
+      desc: "Your primary workspace for analyzing leaked documents and reconstructing mathematical chains of custody.",
+      why: "Operates with zero bias: you supply only the leaked text artifact without selecting suspects or guessing recipients."
+    },
+    {
+      target: "main .c:first-of-type",
+      fallback: "main",
+      view: "inv",
+      title: "Leaked Artifact Ingestion",
+      desc: "Ingest simulated leaked text snippets or upload external .txt files recovered from unauthorized channels.",
+      why: "The forensic engine scans raw text for zero-width Unicode characters and recovers the embedded watermark ID."
+    },
+    {
+      target: "button[data-v='led']",
+      fallback: "aside",
+      view: "inv",
+      title: "Provenance Ledger Verification",
+      desc: "Inspect verified majority blocks, public key histories, and signed PROVENANCE records anchored across the validator network.",
+      why: "Allows independent signature verification (sigVerify) and tampering checks directly on committed transactions."
+    },
+    {
+      target: "button[data-v='val']",
+      fallback: "aside",
+      view: "inv",
+      title: "Validator Network & Quorum",
+      desc: "Verify validator synchronization states and ensure no node divergence or history rewriting has occurred.",
+      why: "Evidence is only legally sound when anchored by quorum (at least 3 of 5 independent nodes)."
+    },
+    {
+      target: "button[data-v='lab']",
+      fallback: "aside",
+      view: "inv",
+      title: "Security Test Lab",
+      desc: "Execute automated adversarial scenarios: altered watermarks, forged signatures, deleted blocks, and corrupted transactions.",
+      why: "Proves in real time that tampered evidence is rejected and cannot produce false positive attributions."
+    },
+    {
+      target: "button[data-v='aud']",
+      fallback: "aside",
+      view: "inv",
+      title: "Authoritative System Audit",
+      desc: "Compare authoritative immutable ledger events against non-authoritative operational logs.",
+      why: "Provides an undeniable audit trail of all operational events and investigative actions."
+    }
+  ],
+  ADMIN: [
+    {
+      target: "main .c:first-of-type",
+      fallback: "aside",
+      view: "dash",
+      title: "Administrator Command Center",
+      desc: "Welcome System Administrator. Full multi-node control and end-to-end consensus monitoring across all enclave modules.",
+      why: "Monitors ledger head consistency, validator quorum status, and system-wide operational metrics."
+    },
+    {
+      target: "button[data-v='docs']",
+      fallback: "aside",
+      view: "dash",
+      title: "Document Custody & Access",
+      desc: "Review all encrypted operational briefs, encryption algorithms, content hashes, and authorized recipient rosters.",
+      why: "Provides full administrative oversight of classified assets within the enclave."
+    },
+    {
+      target: "button[data-v='led']",
+      fallback: "aside",
+      view: "dash",
+      title: "Distributed Provenance Ledger",
+      desc: "Inspect raw block continuity, transaction payloads, and execute signature validation across all recorded events.",
+      why: "Confirms chain integrity and provides cryptographic proof of all document actions."
+    },
+    {
+      target: "button[data-v='val']",
+      fallback: "aside",
+      view: "dash",
+      title: "Validator Management & Attack Simulation",
+      desc: "Take nodes offline, force chain resynchronization, or execute attack simulations (e.g. modified transaction or deleted block).",
+      why: "Allows testing and demonstration of the system's Byzantine fault detection and consensus self-healing."
+    },
+    {
+      target: "button[data-v='id']",
+      fallback: "aside",
+      view: "val",
+      title: "Identities & Cryptographic Key Revocation",
+      desc: "Manage operator identities and revoke compromised public keys across the network.",
+      why: "Revoking a key prevents further authorizations while preserving historical attribution for existing signed records."
+    },
+    {
+      target: "button[data-v='lab']",
+      fallback: "aside",
+      view: "val",
+      title: "Security Test Lab",
+      desc: "Run comprehensive cryptographic suite checks against throw-away sandboxes to verify defense resistance.",
+      why: "Verifies zero-width detection, signature verification, and consensus validation before field deployment."
+    },
+    {
+      target: "button[data-v='aud']",
+      fallback: "aside",
+      view: "val",
+      title: "Immutable System Audit",
+      desc: "Review the authoritative ledger timeline alongside operational logs for complete accountability.",
+      why: "Provides unalterable evidence of all administrative interventions and operator interactions."
+    }
+  ]
+};
+
+function getTourSteps() {
+  const role = (ME && ME.role) || 'SENDER';
+  return TOUR_STEPS_BY_ROLE[role] || TOUR_STEPS_BY_ROLE.SENDER;
+}
 
 const HIW_STEPS = {
   dist: [
@@ -798,7 +971,8 @@ function renderTour() {
 
   if (!TOUR_ACTIVE) return;
 
-  const step = TOUR_STEPS[TOUR_STEP];
+  const steps = getTourSteps();
+  const step = steps[TOUR_STEP];
   if (!step) {
     TOUR_ACTIVE = false;
     TOUR_MODAL = 'done';
@@ -868,7 +1042,7 @@ function renderTour() {
     <div class="tour-tooltip-card" style="top: ${tipTop + window.scrollY}px; left: ${tipLeft}px">
       <div class="tour-pointer-arrow ${arrowClass}"></div>
       <div class="tour-header">
-        <span class="tour-step-tag">STEP ${TOUR_STEP + 1} OF ${TOUR_STEPS.length}</span>
+        <span class="tour-step-tag">STEP ${TOUR_STEP + 1} OF ${steps.length}</span>
         <button type="button" class="s" data-a="tour-skip" style="font-size:10.5px;padding:2px 6px">Skip</button>
       </div>
       <h4 class="tour-title">${e(step.title)}</h4>
@@ -880,7 +1054,7 @@ function renderTour() {
       <div class="tour-footer">
         <button class="s" data-a="tour-back" ${TOUR_STEP === 0 ? 'disabled' : ''}>◀ Back</button>
         <div class="tour-footer-right">
-          <button class="p s" data-a="tour-next">${TOUR_STEP === TOUR_STEPS.length - 1 ? 'Finish Tour ✓' : 'Next ▶'}</button>
+          <button class="p s" data-a="tour-next">${TOUR_STEP === steps.length - 1 ? 'Finish Tour ✓' : 'Next ▶'}</button>
         </div>
       </div>
     </div>
@@ -1160,7 +1334,8 @@ document.addEventListener('click', async ev => {
     return draw();
   }
   if (a === 'tour-next') {
-    if (TOUR_STEP < TOUR_STEPS.length - 1) {
+    const steps = getTourSteps();
+    if (TOUR_STEP < steps.length - 1) {
       TOUR_STEP++;
       return draw();
     } else {
