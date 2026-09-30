@@ -113,6 +113,7 @@ class Validator {
   blocks() { return this.db.all('select body from blocks order by idx').map(r => P(r.body)); }
   append(b) { this.db.run('insert into blocks values(?,?,?)', b.idx, b.hash, J(b)); }
   wipe() { this.db.run('delete from blocks'); }
+  close() { try { this.db.close(); } catch {} }
   verify() { return verifyChain(this.blocks()); }
 }
 
@@ -127,6 +128,7 @@ export class Network {
     }
     if (!this.nodes[0].blocks().length) this.#genesis();
   }
+  close() { for (const n of this.nodes) n.close(); }
   node(id) { const n = this.nodes.find(x => x.id === id); if (!n) throw ERR(404, 'Unknown validator'); return n; }
   #genesis() {
     const txs = this.nodes.map(n => ({ id: 'TX-GENESIS-' + n.id, type: 'VALIDATOR_REGISTRATION', payload: { nodeId: n.id, publicKey: n.pub, algorithm: 'Ed25519' } }));

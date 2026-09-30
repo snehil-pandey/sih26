@@ -1,19 +1,694 @@
-:root{--bg:#0b0d10;--pn:#12161b;--p2:#181e25;--bd:#252c35;--tx:#e6eaee;--mu:#8893a0;--ac:#4cc3e8;--ok:#3fb97a;--er:#e5534b;--wr:#e0a63a}
-@media(prefers-color-scheme:light){:root{--bg:#f3f5f7;--pn:#fff;--p2:#eef1f4;--bd:#d6dde3;--tx:#141a20;--mu:#5d6875;--ac:#0a7ea4;--ok:#1a8a52;--er:#c23a33;--wr:#a86f0a}}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:14px/1.5 Inter,system-ui,-apple-system,sans-serif}
-.m{font-family:ui-monospace,'IBM Plex Mono',Menlo,monospace;font-size:12px}.l{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--mu);font-weight:600}
-#app{display:flex;min-height:100vh}aside{width:206px;background:var(--pn);border-right:1px solid var(--bd);padding:14px 8px;position:sticky;top:0;height:100vh;overflow:auto}
-aside h1{font-size:14px;letter-spacing:.2em;margin:4px 8px 16px}.nv{display:block;width:100%;text-align:left;background:0;border:0;color:var(--mu);padding:8px 10px;border-radius:5px;cursor:pointer;font:inherit}.nv.on{background:var(--p2);color:var(--ac)}
-main{flex:1;min-width:0;padding:0 22px 40px}.top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid var(--bd);margin-bottom:18px}
-.chip{border:1px solid var(--wr);color:var(--wr);padding:2px 8px;border-radius:3px;font-size:10.5px;letter-spacing:.1em;font-weight:600}.chip.a{color:var(--ac);border-color:var(--ac)}
-button,input,select,textarea{background:var(--p2);color:var(--tx);border:1px solid var(--bd);border-radius:5px;padding:6px 11px;font:inherit}button{cursor:pointer}button:hover{border-color:var(--ac)}button.p{background:var(--ac);color:#04121a;font-weight:600;border-color:var(--ac)}button.d{border-color:var(--er);color:var(--er)}button.s{padding:2px 8px;font-size:12px}
-h2{margin:0 0 4px;font-size:22px}h3{margin:0 0 8px;font-size:14px}.sub{color:var(--mu);margin:0 0 16px}.g{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))}.g2{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
-.c{background:var(--pn);border:1px solid var(--bd);border-radius:6px;padding:13px;margin-bottom:10px}.n{font-size:26px;font-weight:600}
-.ok{color:var(--ok)}.er{color:var(--er)}.wr{color:var(--wr)}.mu{color:var(--mu)}.tag{font-size:10.5px;letter-spacing:.08em;font-weight:600;padding:1px 7px;border:1px solid;border-radius:3px;white-space:nowrap}
-table{width:100%;border-collapse:collapse}td,th{padding:6px 8px;border-bottom:1px solid var(--bd);text-align:left;vertical-align:top}th{font-size:10.5px;color:var(--mu);letter-spacing:.1em;text-transform:uppercase}.wrapx{overflow-x:auto}
-.res{border:1px solid;border-radius:6px;padding:14px;margin:10px 0}.res.ok{border-color:var(--ok)}.res.er{border-color:var(--er)}.res.wr{border-color:var(--wr)}
-.ch{max-width:360px;margin:12px 0}.ch .c{margin:0;cursor:pointer;text-align:center}.ch .c:hover{border-color:var(--ac)}.ch .ln{width:1px;height:16px;background:var(--ac);margin:auto}
-pre{background:var(--p2);padding:10px;border-radius:5px;overflow:auto;font-size:12px;white-space:pre-wrap;word-break:break-all}
-.st{display:flex;gap:8px;align-items:baseline;padding:2px 0}.login{max-width:340px;margin:12vh auto}.login input{width:100%;margin:6px 0}
-#toast{position:fixed;right:14px;bottom:14px;background:var(--p2);border:1px solid var(--ac);padding:10px 14px;border-radius:5px;display:none;max-width:440px;z-index:9}
-@media(max-width:820px){aside{width:74px}aside h1{display:none}.nv{font-size:11px;padding:6px 4px}main{padding:0 12px 40px}}
+/* ==========================================================================
+   SIH26237 DEFENSE FORENSIC CONSOLE DESIGN SYSTEM (POLISHED)
+   Strictly preserves all existing CSS class names, selectors and contracts.
+   ========================================================================== */
+
+:root {
+  /* Surface Hierarchies */
+  --bg-base: #080a0e;
+  --bg: #0b0f16;
+  --bg-subtle: #10151f;
+  --pn: #141b26;
+  --pn-elevated: #192231;
+  --p2: #1e283a;
+  --p2-hover: #26334a;
+  --p2-active: #2b3952;
+  
+  /* Borders */
+  --bd: #233044;
+  --bd-subtle: #192333;
+  --bd-light: #2c3c54;
+  --bd-focus: #38bdf8;
+  --bd-active: #0284c7;
+
+  /* Typography / Text Tones */
+  --tx: #edf2f7;
+  --tx-secondary: #cbd5e1;
+  --mu: #7d8ea3;
+  --mu-dark: #475569;
+  
+  /* Semantic Accent - Precision Defense Cyan */
+  --ac: #38bdf8;
+  --ac-hover: #7dd3fc;
+  --ac-active: #0284c7;
+  --ac-bg: rgba(56, 189, 248, 0.08);
+  --ac-border: rgba(56, 189, 248, 0.28);
+  
+  /* Semantic Status: Valid / Operational Green */
+  --ok: #34d399;
+  --ok-bg: rgba(52, 211, 153, 0.09);
+  --ok-border: rgba(52, 211, 153, 0.3);
+  
+  /* Semantic Status: Error / Threat Red */
+  --er: #f87171;
+  --er-bg: rgba(248, 113, 113, 0.09);
+  --er-border: rgba(248, 113, 113, 0.32);
+  
+  /* Semantic Status: Caution / Degradation Amber */
+  --wr: #fbbf24;
+  --wr-bg: rgba(251, 191, 36, 0.09);
+  --wr-border: rgba(251, 191, 36, 0.32);
+
+  /* Shadows & Depth */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.55);
+  --shadow-glow-ac: 0 0 12px rgba(56, 189, 248, 0.22);
+  --shadow-glow-ok: 0 0 10px rgba(52, 211, 153, 0.25);
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-base: #e9eff5;
+    --bg: #f1f5f9;
+    --bg-subtle: #e2e8f0;
+    --pn: #ffffff;
+    --pn-elevated: #f8fafc;
+    --p2: #edf2f7;
+    --p2-hover: #e2e8f0;
+    --p2-active: #cbd5e1;
+    
+    --bd: #cbd5e1;
+    --bd-subtle: #e2e8f0;
+    --bd-light: #94a3b8;
+    --bd-focus: #0284c7;
+    --bd-active: #0369a1;
+
+    --tx: #090d16;
+    --tx-secondary: #334155;
+    --mu: #64748b;
+    --mu-dark: #94a3b8;
+    
+    --ac: #0284c7;
+    --ac-hover: #0369a1;
+    --ac-active: #075985;
+    --ac-bg: rgba(2, 132, 199, 0.09);
+    --ac-border: rgba(2, 132, 199, 0.32);
+    
+    --ok: #059669;
+    --ok-bg: rgba(5, 150, 105, 0.09);
+    --ok-border: rgba(5, 150, 105, 0.32);
+    
+    --er: #dc2626;
+    --er-bg: rgba(220, 38, 38, 0.09);
+    --er-border: rgba(220, 38, 38, 0.32);
+    
+    --wr: #d97706;
+    --wr-bg: rgba(217, 119, 6, 0.09);
+    --wr-border: rgba(217, 119, 6, 0.32);
+
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+    --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.1);
+    --shadow-glow-ac: 0 0 10px rgba(2, 132, 199, 0.15);
+    --shadow-glow-ok: 0 0 8px rgba(5, 150, 105, 0.15);
+  }
+}
+
+/* Base Reset & Core Setup */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--tx);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", "Helvetica Neue", Arial, sans-serif;
+  font-size: 13.5px;
+  line-height: 1.5;
+  letter-spacing: -0.012em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Monospace & Data Elements */
+.m {
+  font-family: ui-monospace, "JetBrains Mono", "Cascadia Code", "IBM Plex Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  letter-spacing: -0.025em;
+}
+
+/* Micro-Labels & Category Indicators */
+.l {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mu);
+  font-weight: 700;
+  display: block;
+  margin-bottom: 5px;
+}
+
+/* Headings & Hierarchy */
+h2 {
+  margin: 0 0 4px;
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: var(--tx);
+  line-height: 1.25;
+}
+
+h3 {
+  margin: 0 0 8px;
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  color: var(--tx);
+}
+
+.sub {
+  color: var(--mu);
+  font-size: 12.5px;
+  margin: 0 0 20px;
+  line-height: 1.45;
+}
+
+/* ==========================================================================
+   LAYOUT: SIDEBAR & MAIN CONSOLE CONTAINER
+   ========================================================================== */
+
+#app {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+aside {
+  width: 240px;
+  background: var(--pn);
+  border-right: 1px solid var(--bd);
+  padding: 18px 12px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: var(--shadow-sm);
+  z-index: 10;
+}
+
+aside h1 {
+  font-size: 12.5px;
+  letter-spacing: 0.22em;
+  margin: 4px 10px 20px;
+  font-weight: 800;
+  color: var(--tx);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-transform: uppercase;
+}
+
+aside h1::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  background: var(--ac);
+  border-radius: 2px;
+  box-shadow: var(--shadow-glow-ac);
+}
+
+.nv {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--mu);
+  padding: 9px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  transition: all 0.14s ease-in-out;
+  text-decoration: none;
+}
+
+.nv:hover {
+  background: var(--p2);
+  color: var(--tx);
+  border-color: var(--bd-subtle);
+}
+
+.nv.on {
+  background: var(--p2);
+  color: var(--ac);
+  border-color: var(--ac-border);
+  font-weight: 600;
+  box-shadow: var(--shadow-sm);
+}
+
+main {
+  flex: 1;
+  min-width: 0;
+  padding: 0 32px 56px;
+  max-width: 1480px;
+}
+
+/* ==========================================================================
+   TOP BAR: SECURITY BANNER, CHIPS & USER CONTEXT
+   ========================================================================== */
+
+.top {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--bd);
+  margin-bottom: 24px;
+  background: transparent;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--wr-border);
+  background: var(--wr-bg);
+  color: var(--wr);
+  padding: 3px 9px;
+  border-radius: 4px;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  text-transform: uppercase;
+  line-height: 1.3;
+}
+
+.chip.a {
+  color: var(--ac);
+  border-color: var(--ac-border);
+  background: var(--ac-bg);
+}
+
+/* ==========================================================================
+   FORM CONTROLS & BUTTONS
+   ========================================================================== */
+
+button, input, select, textarea {
+  background: var(--p2);
+  color: var(--tx);
+  border: 1px solid var(--bd);
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-family: inherit;
+  transition: border-color 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease;
+}
+
+button {
+  cursor: pointer;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  user-select: none;
+}
+
+button:hover {
+  background: var(--p2-hover);
+  border-color: var(--bd-light);
+  color: #ffffff;
+}
+
+button:active {
+  background: var(--p2-active);
+  transform: translateY(1px);
+}
+
+button:focus-visible {
+  outline: none;
+  border-color: var(--bd-focus);
+  box-shadow: 0 0 0 2px var(--ac-bg);
+}
+
+/* Primary Action Button */
+button.p {
+  background: var(--ac);
+  color: #04121a;
+  border-color: var(--ac);
+  box-shadow: 0 1px 4px rgba(56, 189, 248, 0.28);
+}
+
+button.p:hover {
+  background: var(--ac-hover);
+  border-color: var(--ac-hover);
+  color: #04121a;
+  box-shadow: 0 2px 8px rgba(56, 189, 248, 0.38);
+}
+
+/* Danger / Destructive Action Button */
+button.d {
+  background: var(--er-bg);
+  border-color: var(--er-border);
+  color: var(--er);
+}
+
+button.d:hover {
+  background: var(--er);
+  color: #ffffff;
+  border-color: var(--er);
+  box-shadow: 0 2px 8px rgba(248, 113, 113, 0.35);
+}
+
+/* Compact Table/Secondary Action Button */
+button.s {
+  padding: 3px 9px;
+  font-size: 11.5px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--bd-focus);
+  box-shadow: 0 0 0 2px var(--ac-bg);
+  background: var(--pn-elevated);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--mu-dark);
+}
+
+textarea {
+  resize: vertical;
+}
+
+/* ==========================================================================
+   CARDS, PANELS & GRIDS
+   ========================================================================== */
+
+.c {
+  background: var(--pn);
+  border: 1px solid var(--bd);
+  border-radius: 7px;
+  padding: 16px 18px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.c:hover {
+  border-color: var(--bd-light);
+}
+
+.g {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+  margin-bottom: 16px;
+}
+
+.g2 {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+}
+
+.n {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--tx);
+  line-height: 1.2;
+  margin-top: 4px;
+}
+
+/* ==========================================================================
+   STATUS INDICATORS, TAGS & VERDICT CALLOUTS
+   ========================================================================== */
+
+.ok { color: var(--ok); }
+.er { color: var(--er); }
+.wr { color: var(--wr); }
+.mu { color: var(--mu); }
+
+.tag {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border: 1px solid;
+  border-radius: 3px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1.3;
+}
+
+.tag.ok {
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
+  color: var(--ok);
+}
+
+.tag.er {
+  background: var(--er-bg);
+  border-color: var(--er-border);
+  color: var(--er);
+}
+
+.tag.wr {
+  background: var(--wr-bg);
+  border-color: var(--wr-border);
+  color: var(--wr);
+}
+
+.tag.ac {
+  background: var(--ac-bg);
+  border-color: var(--ac-border);
+  color: var(--ac);
+}
+
+.res {
+  border: 1px solid;
+  border-radius: 7px;
+  padding: 18px 20px;
+  margin: 16px 0;
+  box-shadow: var(--shadow-sm);
+}
+
+.res.ok {
+  background: var(--ok-bg);
+  border-color: var(--ok-border);
+}
+
+.res.er {
+  background: var(--er-bg);
+  border-color: var(--er-border);
+}
+
+.res.wr {
+  background: var(--wr-bg);
+  border-color: var(--wr-border);
+}
+
+/* ==========================================================================
+   TABLES: FORENSIC WORKSTATION PRESENTATION
+   ========================================================================== */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+td, th {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--bd);
+  text-align: left;
+  vertical-align: middle;
+}
+
+th {
+  font-size: 10px;
+  color: var(--mu);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
+  background: var(--pn-elevated);
+  border-bottom: 1px solid var(--bd-light);
+}
+
+tr:last-child td {
+  border-bottom: none;
+}
+
+tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+td.l {
+  width: 220px;
+  color: var(--mu);
+  font-weight: 600;
+}
+
+.wrapx {
+  overflow-x: auto;
+  border-radius: 7px;
+  border: 1px solid var(--bd);
+}
+
+.wrapx table {
+  margin: 0;
+}
+
+/* ==========================================================================
+   FORENSIC INVESTIGATION CHAIN OF CUSTODY
+   ========================================================================== */
+
+.ch {
+  max-width: 440px;
+  margin: 18px 0;
+}
+
+.ch .c {
+  margin: 0;
+  cursor: pointer;
+  text-align: center;
+  padding: 11px 14px;
+  background: var(--pn-elevated);
+  border-color: var(--bd);
+  border-radius: 6px;
+  transition: all 0.16s ease-in-out;
+}
+
+.ch .c:hover {
+  border-color: var(--ac);
+  background: var(--p2);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-glow-ac);
+}
+
+.ch .ln {
+  width: 2px;
+  height: 20px;
+  background: var(--ac);
+  margin: auto;
+  opacity: 0.7;
+}
+
+/* ==========================================================================
+   CODE & EVIDENCE INSPECTION CONSOLE
+   ========================================================================== */
+
+pre {
+  background: var(--bg-base);
+  border: 1px solid var(--bd);
+  color: #cbd5e1;
+  padding: 14px 16px;
+  border-radius: 6px;
+  overflow: auto;
+  font-size: 12px;
+  font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.55;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+/* Step-by-Step Evidence Verification */
+.st {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 5px 0;
+  font-size: 13px;
+}
+
+.st span.ok {
+  font-weight: 800;
+  color: var(--ok);
+  text-shadow: 0 0 6px var(--ok-bg);
+}
+
+.st span.er {
+  font-weight: 800;
+  color: var(--er);
+  text-shadow: 0 0 6px var(--er-bg);
+}
+
+/* ==========================================================================
+   AUTHENTICATION & TERMINAL LOCKOUT MODAL
+   ========================================================================== */
+
+.login {
+  max-width: 380px;
+  margin: 12vh auto;
+  background: var(--pn);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  padding: 30px 26px;
+  box-shadow: var(--shadow-md);
+}
+
+.login input {
+  width: 100%;
+  margin: 8px 0;
+}
+
+.login button {
+  margin-top: 6px;
+}
+
+/* ==========================================================================
+   TOAST NOTIFICATION COMPONENT
+   ========================================================================== */
+
+#toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  background: var(--pn-elevated);
+  border: 1px solid var(--ac);
+  color: var(--tx);
+  box-shadow: var(--shadow-md), var(--shadow-glow-ac);
+  padding: 12px 18px;
+  border-radius: 6px;
+  display: none;
+  max-width: 450px;
+  z-index: 9999;
+  font-size: 13px;
+  line-height: 1.45;
+  animation: toastFadeIn 0.2s ease-out;
+}
+
+@keyframes toastFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ==========================================================================
+   RESPONSIVENESS (DESKTOP & NARROW WORKSTATION TERMINALS)
+   ========================================================================== */
+
+@media (max-width: 880px) {
+  aside {
+    width: 82px;
+    padding: 14px 6px;
+  }
+  aside h1 {
+    display: none;
+  }
+  .nv {
+    font-size: 11px;
+    padding: 9px 4px;
+    justify-content: center;
+    text-align: center;
+  }
+  main {
+    padding: 0 18px 48px;
+  }
+}

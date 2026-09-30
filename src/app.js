@@ -57,7 +57,9 @@ export function createApp({ dataDir = null, demoMode = true, demoPassword = proc
   const actorOf = (u, kek) => { const k = activeKey(u.id); return { identityId: k.identity_id, keyId: k.id, priv: unlockKey(k, kek) }; };
 
   function seed() {
-    schema(); net = new Network(dataDir ? path.join(dataDir, 'validators') : null, ks, { fresh: true }); sessions.clear(); fails.clear();
+    schema();
+    if (net) try { net.close(); } catch {}
+    net = new Network(dataDir ? path.join(dataDir, 'validators') : null, ks, { fresh: true }); sessions.clear(); fails.clear();
     const U = [['USR-0001', 'Commander Arjun', 'sender', 'SENDER'], ['REC-0192', 'Aarav Sharma', 'aarav', 'RECIPIENT'], ['REC-0217', 'Riya Mehta', 'riya', 'RECIPIENT'], ['REC-0281', 'Kabir Rao', 'kabir', 'RECIPIENT'], ['REC-0319', 'Nisha Nair', 'nisha', 'RECIPIENT'], ['USR-0002', 'Forensic Officer', 'forensic', 'INVESTIGATOR'], ['USR-0003', 'System Administrator', 'admin', 'ADMIN']];
     net.submit(U.map(([id, name, username, role]) => makeUser({ id, name, username, role, password: demoPassword })));
     const kekOf = id => deriveKek(demoPassword, user(id).kek_salt), sender = user('USR-0001');

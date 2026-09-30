@@ -26,10 +26,11 @@ const evBox = x => `<table>${kv('Signature (ML-DSA-65, simulated)', tag(x.signat
 const VIEW = {
   async dash() {
     const d = await api('/dashboard'), vs = d.validators;
-    return `<h2>Command center</h2><p class="sub">Counts come from the application database and the verified ledger.</p>
-    <div class="g">${[['Documents', d.documents], ['Recipients', d.recipients], ['Decryption sessions', d.sessions], ['Provenance records (ledger)', d.provenance], ['Ledger blocks', d.blocks], ['Investigations', d.investigations], ['Verified attributions', d.verified]].map(([a, b]) => `<div class="c"><div class="l">${a}</div><div class="n">${b}</div></div>`).join('')}</div>
-    <div class="c"><div class="l">Ledger integrity (computed on request)</div><div class="n ${vs.agreed && !vs.diverged.length ? 'ok' : 'er'}">${vs.agreed ? (vs.diverged.length ? 'QUORUM OK · DIVERGENCE DETECTED' : 'VALIDATORS AGREE') : 'NO VALIDATOR QUORUM'}</div>
-    <p class="m">${vs.inSync}/${vs.total} validators in sync (quorum ${vs.quorum})${vs.diverged.length ? ' · diverged: ' + e(vs.diverged.join(', ')) : ''}<br>head ${sh(d.ledgerHead)}</p><p class="mu">Simulated permissioned consensus for prototype demonstration.</p></div>`;
+    return `<h2>Command center</h2><p class="sub">Continuous cryptographic consensus and operational metrics across air-gapped nodes.</p>
+    <div class="c" style="border-left:4px solid ${vs.agreed && !vs.diverged.length ? 'var(--ok)' : 'var(--er)'};margin-bottom:18px"><div class="l">Distributed Ledger Integrity · Consensus Status</div><div class="n ${vs.agreed && !vs.diverged.length ? 'ok' : 'er'}" style="font-size:24px;margin-bottom:6px">${vs.agreed ? (vs.diverged.length ? 'QUORUM OK · DIVERGENCE DETECTED' : 'CONSENSUS VERIFIED · ALL VALIDATORS AGREE') : 'ALERT: NO VALIDATOR QUORUM'}</div>
+    <p class="m" style="margin:4px 0">${vs.inSync}/${vs.total} validators in sync (quorum ${vs.quorum})${vs.diverged.length ? ' · <span class="er">diverged: ' + e(vs.diverged.join(', ')) + '</span>' : ''} · head <span style="color:var(--ac)">${sh(d.ledgerHead)}</span></p><p class="mu" style="margin:4px 0 0;font-size:11px">Local permissioned DLT consensus verified on-demand against independent node state.</p></div>
+    <div class="l" style="margin:16px 0 8px">Operational Metrics</div>
+    <div class="g">${[['Documents', d.documents], ['Recipients', d.recipients], ['Decryption sessions', d.sessions], ['Provenance records', d.provenance], ['Ledger blocks', d.blocks], ['Investigations', d.investigations], ['Verified attributions', d.verified]].map(([a, b]) => `<div class="c"><div class="l">${a}</div><div class="n">${b}</div></div>`).join('')}</div>`;
   },
   async docs() {
     const d = await api('/documents'), R = ME.role === 'RECIPIENT';
@@ -90,16 +91,61 @@ const VIEW = {
   },
 };
 
+function isMobile() {
+  const ua = navigator.userAgent || navigator.vendor || window.opera || '';
+  const isMobileUA = /android|iphone|ipad|ipod|blackberry|iemobile|opera mini|mobile/i.test(ua);
+  const isMobileScreen = window.innerWidth <= 800 || (window.screen && window.screen.width <= 800);
+  return isMobileUA || (isMobileScreen && ('ontouchstart' in window || navigator.maxTouchPoints > 0));
+}
+
+let lastMobileState = isMobile();
+window.addEventListener('resize', () => {
+  const cur = isMobile();
+  if (cur !== lastMobileState) {
+    lastMobileState = cur;
+    draw();
+  }
+});
+window.addEventListener('orientationchange', () => {
+  setTimeout(() => {
+    lastMobileState = isMobile();
+    draw();
+  }, 100);
+});
+
 async function draw() {
   const A = $('app');
-  if (!ME) { A.innerHTML = `<div class="login"><div class="l" style="color:var(--ac)">SIH26237 · SIMULATION</div><h2>PROVENANCE</h2><p class="sub">Secure document attribution system</p><input id="u" placeholder="username" autocomplete="username" value="sender"><input id="p" type="password" placeholder="password" autocomplete="current-password"><button class="p" data-a="login" style="width:100%">Authenticate</button><p class="mu m">demo users: sender · aarav · riya · kabir · nisha · forensic · admin<br>demo password: see README</p><button data-a="reset">Reset demo environment</button></div>`; return; }
+  if (isMobile()) {
+    A.innerHTML = `<div class="login" style="max-width:440px;text-align:center"><div class="l" style="color:var(--er);margin-bottom:8px">SECURITY ENCLAVE · ACCESS RESTRICTED</div><h2>DESKTOP WORKSTATION REQUIRED</h2><p class="sub" style="margin-top:10px;line-height:1.6">The <b>SIH26237 Cryptographic Decryption Provenance & Attribution System</b> is restricted to authorized defense terminal consoles and desktop workstations.<br><br>Mobile devices, handsets, and handheld web browsers are strictly disallowed by enclave security policy.</p><div class="c" style="text-align:left;font-size:12px;margin:16px 0"><div class="l">Terminal Diagnostics</div><div class="m mu">CLIENT_AGENT: ${e(navigator.userAgent.slice(0, 70))}…<br>SECURITY_POLICY: DESKTOP_ENCLAVE_ONLY<br>STATUS: ACCESS_DENIED</div></div><p class="mu m" style="font-size:11px">Please access this console from an authorized workstation terminal.</p></div>`;
+    return;
+  }
+  if (!ME) {
+    const PRESETS = [
+      ['sender', 'Commander Arjun (SENDER)'],
+      ['aarav', 'Aarav Sharma (RECIPIENT)'],
+      ['riya', 'Riya Mehta (RECIPIENT)'],
+      ['kabir', 'Kabir Rao (RECIPIENT)'],
+      ['nisha', 'Nisha Nair (UNAUTHORIZED)'],
+      ['forensic', 'Forensic Officer (INVESTIGATOR)'],
+      ['admin', 'System Administrator (ADMIN)']
+    ];
+    A.innerHTML = `<div class="login"><div class="l" style="color:var(--ac)">SIH26237 · SIMULATION</div><h2>PROVENANCE</h2><p class="sub">Secure document attribution system</p><input id="u" placeholder="username" autocomplete="username" value="sender"><input id="p" type="password" placeholder="password" autocomplete="current-password" value="demo1234"><button class="p" data-a="login" style="width:100%;margin-top:6px">Authenticate</button><div class="l" style="margin:16px 0 6px">Quick login presets</div><div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px">${PRESETS.map(([u, lbl]) => `<button type="button" class="s" data-a="fill" data-v="${e(u)}" title="${e(lbl)}">${e(u)}</button>`).join('')}</div><button data-a="reset" style="width:100%">Reset demo environment</button></div>`;
+    return;
+  }
   const nav = NAV[ME.role]; if (!nav.some(n => n[0] === V)) V = 'dash';
   let body; try { body = await VIEW[V](); } catch (x) { body = `<div class="res er">${e(x.message)}</div>`; }
-  A.innerHTML = `<aside><h1>PROVENANCE</h1>${nav.map(n => `<button class="nv ${V === n[0] ? 'on' : ''}" data-a="nav" data-v="${n[0]}">${n[1]}</button>`).join('')}</aside><main><div class="top"><span class="chip">DEMO MODE</span><span class="chip a">CRYPTO: SIMULATION</span><span style="flex:1"></span><span>${e(ME.name)} <span class="mu m">${e(ME.id)} · ${e(ME.role)}</span></span><button data-a="logout">Sign out</button></div>${body}</main>`;
+  const timeStr = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+  A.innerHTML = `<aside><h1>PROVENANCE</h1>${nav.map(n => `<button class="nv ${V === n[0] ? 'on' : ''}" data-a="nav" data-v="${n[0]}">${n[1]}</button>`).join('')}</aside><main><div class="top"><span class="chip">DEMO MODE</span><span class="chip a">CRYPTO: SIMULATION</span><span class="chip" style="color:var(--tx);border-color:var(--bd-light);background:var(--pn-elevated)"><span style="display:inline-block;width:6px;height:6px;background:var(--ok);border-radius:50%;margin-right:6px;box-shadow:0 0 6px var(--ok)"></span><span id="live-clock" class="m">${timeStr}</span></span><span style="flex:1"></span><span>${e(ME.name)} <span class="mu m">${e(ME.id)} · ${e(ME.role)}</span></span><button data-a="logout">Sign out</button></div>${body}</main>`;
 }
+
+setInterval(() => {
+  const c = $('live-clock');
+  if (c) c.textContent = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
+}, 1000);
 const EVID = r => ({ a: { artefact: r.label }, w: { watermarkId: r.watermarkId }, t: { transactionId: r.transactionId, record: r.evidence.record }, b: r.evidence.block, s: { sessionId: r.sessionId, documentId: r.documentId }, r: { recipientId: r.recipientId, name: r.recipientName }, k: r.evidence.key, g: { signatureValid: r.signatureValid, signature: r.evidence.signature, algorithm: r.evidence.record.signatureAlgorithm }, h: { chainValid: r.chainValid, blockValid: r.blockValid, validatorAgreement: r.validatorAgreement } });
 document.addEventListener('click', async ev => {
   const el = ev.target.closest('[data-a]'); if (!el) return; const a = el.dataset.a, v = el.dataset.v;
+  if (a === 'fill') { if ($('u')) $('u').value = v; if ($('p')) $('p').value = 'demo1234'; return; }
   if (a === 'ev') { if (OUT?.inv) $('evd').textContent = JSON.stringify(EVID(OUT.inv)[v], null, 1); return; }
   const go = async f => { try { await f(); } catch (x) { OUT = null; toast(x.message); } draw(); };
   if (a === 'login') return go(async () => { const r = await api('/auth/login', 'POST', { username: $('u').value, password: $('p').value }); T = r.token; ME = r.user; sessionStorage.setItem('t', T); sessionStorage.setItem('me', JSON.stringify(ME)); V = 'dash'; OUT = null; });
