@@ -837,8 +837,10 @@ function renderTour() {
   if (tipLeft + 350 > window.innerWidth) tipLeft = window.innerWidth - 365;
   if (tipTop + 300 > window.innerHeight) tipTop = window.innerHeight - 320;
 
+  document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
+  if (el) el.classList.add('tour-highlighted-element');
+
   d.innerHTML = `
-    <div class="tour-backdrop"></div>
     <div class="tour-spotlight-box" style="
       top: ${rect.top - 4 + window.scrollY}px;
       left: ${rect.left - 4}px;
@@ -1158,6 +1160,7 @@ document.addEventListener('click', async ev => {
     TOUR_ACTIVE = false;
     TOUR_MODAL = null;
     localStorage.setItem('sih_tour_done_' + (ME ? ME.id : 'anon'), '1');
+    document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
     const old = $('tour-root');
     if (old) old.remove();
     return;
@@ -1165,6 +1168,7 @@ document.addEventListener('click', async ev => {
   if (a === 'tour-close') {
     TOUR_MODAL = null;
     TOUR_ACTIVE = false;
+    document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
     const old = $('tour-root');
     if (old) old.remove();
     return;
