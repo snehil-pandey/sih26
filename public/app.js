@@ -21,9 +21,75 @@ const NAV = {
   ADMIN: [['dash', 'Command center'], ['how', 'How it works'], ['docs', 'Documents'], ['sess', 'Sessions'], ['led', 'Provenance ledger'], ['val', 'Validators'], ['id', 'Identities & keys'], ['lab', 'Security lab'], ['aud', 'Audit']],
 };
 const syncTag = n => `<span class="tag ${n.sync === 'IN_SYNC' ? 'ok' : n.sync === 'BEHIND' || n.sync === 'OFFLINE' ? 'wr' : 'er'}">${e(n.sync.replace('_', ' '))}</span>`;
-let HIW_MODE = 'dist'; // 'dist' | 'forensic'
-let HIW_STEP = 0;
-let HIW_AUTOPLAY = null;
+let TOUR_ACTIVE = false;
+let TOUR_STEP = 0;
+let TOUR_MODAL = null; // 'welcome' | 'done' | null
+
+const TOUR_STEPS = [
+  {
+    target: "aside",
+    view: "dash",
+    title: "Main Operations Workspace",
+    desc: "Welcome to your defense terminal console. The sidebar lets you navigate between document management, cryptographic identities, and consensus monitoring.",
+    why: "Provides role-governed access boundaries across the provenance enclave."
+  },
+  {
+    target: "button[data-v='docs']",
+    fallback: "aside",
+    view: "dash",
+    title: "Protected Documents Workspace",
+    desc: "Navigate here to view confidential briefs, manage cryptographic protections, or decrypt authorized files.",
+    why: "All document payloads are encrypted with AES-256-GCM before exiting local custody."
+  },
+  {
+    target: "#dn",
+    fallback: "main .c",
+    view: "docs",
+    title: "Create & Distribute Document",
+    desc: "Senders name, classify, and input plaintext operational briefs here for cryptographic sealing.",
+    why: "Generates a single-use 256-bit Content Encryption Key (CEK) bound to document version and hash."
+  },
+  {
+    target: ".rc",
+    fallback: "#dc",
+    view: "docs",
+    title: "Authorized Recipient Selection",
+    desc: "Select which recipients are permitted to access this document.",
+    why: "Creates SENDER-signed AUTHORIZATION transactions on the distributed ledger and establishes ML-KEM-768 key capsules."
+  },
+  {
+    target: "button[data-v='led']",
+    fallback: "aside",
+    view: "dash",
+    title: "Distributed Provenance Ledger",
+    desc: "Review immutable blocks, key registrations, authorizations, and recipient decryption transactions.",
+    why: "Maintained independently by 5 air-gapped validator SQLite nodes to prevent unilateral history alteration."
+  },
+  {
+    target: "button[data-v='val']",
+    fallback: "aside",
+    view: "dash",
+    title: "Validator Network & Consensus",
+    desc: "Inspect live node states, synchronization health, and quorum agreements across the 5 validator nodes.",
+    why: "Blocks only commit when a verified majority (at least 3 of 5 nodes) sign Ed25519 approvals."
+  },
+  {
+    target: "button[data-v='inv']",
+    fallback: "aside",
+    view: "dash",
+    title: "Forensic Attribution Lab",
+    desc: "Upload or select an anonymous leaked text artifact to recover hidden zero-width watermarks and verify ledger evidence.",
+    why: "Reconstructs mathematical proof back to the exact recipient without requiring investigator assumptions."
+  },
+  {
+    target: ".top",
+    fallback: "main",
+    view: "dash",
+    title: "Operator Session & Terminal Controls",
+    desc: "Displays active cryptographic mode, military UTC time ticker, current operator identity, role permissions, and tour replay controls.",
+    why: "Ensures complete session accountability and audit logging."
+  }
+];
 
 const HIW_STEPS = {
   dist: [
@@ -681,7 +747,125 @@ async function draw() {
   const nav = NAV[ME.role]; if (!nav.some(n => n[0] === V)) V = 'dash';
   let body; try { body = await VIEW[V](); } catch (x) { body = `<div class="res er">${e(x.message)}</div>`; }
   const timeStr = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
-  A.innerHTML = `<aside><h1>PROVENANCE</h1>${nav.map(n => `<button class="nv ${V === n[0] ? 'on' : ''}" data-a="nav" data-v="${n[0]}">${n[1]}</button>`).join('')}</aside><main><div class="top"><span class="chip">DEMO MODE</span><span class="chip a">CRYPTO: SIMULATION</span><span class="chip" style="color:var(--tx);border-color:var(--bd-light);background:var(--pn-elevated)"><span style="display:inline-block;width:6px;height:6px;background:var(--ok);border-radius:50%;margin-right:6px;box-shadow:0 0 6px var(--ok)"></span><span id="live-clock" class="m">${timeStr}</span></span><span style="flex:1"></span><span>${e(ME.name)} <span class="mu m">${e(ME.id)} · ${e(ME.role)}</span></span><button data-a="logout">Sign out</button></div>${body}</main>`;
+  A.innerHTML = `<aside><h1>PROVENANCE</h1>${nav.map(n => `<button class="nv ${V === n[0] ? 'on' : ''}" data-a="nav" data-v="${n[0]}">${n[1]}</button>`).join('')}</aside><main><div class="top"><span class="chip">DEMO MODE</span><span class="chip a">CRYPTO: SIMULATION</span><span class="chip" style="color:var(--tx);border-color:var(--bd-light);background:var(--pn-elevated)"><span style="display:inline-block;width:6px;height:6px;background:var(--ok);border-radius:50%;margin-right:6px;box-shadow:0 0 6px var(--ok)"></span><span id="live-clock" class="m">${timeStr}</span></span><span style="flex:1"></span><span>${e(ME.name)} <span class="mu m">${e(ME.id)} · ${e(ME.role)}</span></span><button class="s" data-a="tour-start" title="Replay Guided Walkthrough">Tour 🧭</button><button data-a="logout">Sign out</button></div>${body}</main>`;
+
+  if (TOUR_MODAL || TOUR_ACTIVE) {
+    renderTour();
+  }
+}
+
+function renderTour() {
+  const old = $('tour-root');
+  if (old) old.remove();
+
+  if (TOUR_MODAL === 'welcome') {
+    const d = document.createElement('div');
+    d.id = 'tour-root';
+    d.innerHTML = `
+      <div class="tour-backdrop"></div>
+      <div class="tour-center-modal">
+        <div class="l" style="color:var(--ac);margin-bottom:8px">SECURITY ENCLAVE · OPERATOR ONBOARDING</div>
+        <h3>WELCOME TO THE WORKSPACE</h3>
+        <p>Let's take a quick interactive walkthrough to show you where everything is and how to operate the defense console interface.</p>
+        <div class="tour-center-actions">
+          <button class="hiw-hero-btn primary" data-a="tour-begin" style="font-size:13px;padding:9px 18px">▶ START TOUR</button>
+          <button class="s" data-a="tour-skip" style="font-size:13px;padding:9px 16px">SKIP FOR NOW</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(d);
+    return;
+  }
+
+  if (TOUR_MODAL === 'done') {
+    const d = document.createElement('div');
+    d.id = 'tour-root';
+    d.innerHTML = `
+      <div class="tour-backdrop"></div>
+      <div class="tour-center-modal">
+        <div class="l" style="color:var(--ok);margin-bottom:8px">ONBOARDING COMPLETED</div>
+        <h3>YOU'RE READY TO OPERATE</h3>
+        <p>You now know how documents are protected, authorized, committed to the ledger, and forensically attributed. You can replay this tour anytime from the top bar.</p>
+        <div class="tour-center-actions">
+          <button class="hiw-hero-btn primary" data-a="tour-close" style="font-size:13px;padding:9px 24px">EXPLORE WORKSPACE</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(d);
+    return;
+  }
+
+  if (!TOUR_ACTIVE) return;
+
+  const step = TOUR_STEPS[TOUR_STEP];
+  if (!step) {
+    TOUR_ACTIVE = false;
+    TOUR_MODAL = 'done';
+    renderTour();
+    return;
+  }
+
+  // Ensure appropriate view is selected
+  if (step.view && V !== step.view) {
+    V = step.view;
+    draw();
+    return;
+  }
+
+  let el = document.querySelector(step.target);
+  if (!el && step.fallback) el = document.querySelector(step.fallback);
+  if (!el) el = document.querySelector('main');
+
+  const rect = el ? el.getBoundingClientRect() : { top: 120, left: 100, width: 300, height: 100 };
+
+  // Scroll into view if offscreen
+  if (el && (rect.top < 0 || rect.bottom > window.innerHeight)) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  const d = document.createElement('div');
+  d.id = 'tour-root';
+
+  // Calculate tooltip placement
+  const isRight = rect.left + rect.width + 360 < window.innerWidth;
+  const isBottom = rect.bottom + 260 < window.innerHeight;
+
+  let tipLeft = isRight ? rect.right + 16 : Math.max(16, rect.left);
+  let tipTop = isBottom ? rect.top : Math.max(70, rect.bottom - 220);
+
+  // Bounds checking
+  if (tipLeft + 350 > window.innerWidth) tipLeft = window.innerWidth - 365;
+  if (tipTop + 300 > window.innerHeight) tipTop = window.innerHeight - 320;
+
+  d.innerHTML = `
+    <div class="tour-backdrop"></div>
+    <div class="tour-spotlight-box" style="
+      top: ${rect.top - 4 + window.scrollY}px;
+      left: ${rect.left - 4}px;
+      width: ${rect.width + 8}px;
+      height: ${rect.height + 8}px;
+    "></div>
+    <div class="tour-tooltip-card" style="top: ${tipTop + window.scrollY}px; left: ${tipLeft}px">
+      <div class="tour-pointer-arrow ${isRight ? 'left' : 'top'}"></div>
+      <div class="tour-header">
+        <span class="tour-step-tag">STEP ${TOUR_STEP + 1} OF ${TOUR_STEPS.length}</span>
+        <button type="button" class="s" data-a="tour-skip" style="font-size:10.5px;padding:2px 6px">Skip</button>
+      </div>
+      <h4 class="tour-title">${e(step.title)}</h4>
+      <div class="tour-desc">${e(step.desc)}</div>
+      <div class="tour-why-box">
+        <b>Why it matters:</b>
+        ${e(step.why)}
+      </div>
+      <div class="tour-footer">
+        <button class="s" data-a="tour-back" ${TOUR_STEP === 0 ? 'disabled' : ''}>◀ Back</button>
+        <div class="tour-footer-right">
+          <button class="p s" data-a="tour-next">${TOUR_STEP === TOUR_STEPS.length - 1 ? 'Finish Tour ✓' : 'Next ▶'}</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(d);
 }
 
 function renderPublicHowItWorks() {
@@ -941,9 +1125,78 @@ document.addEventListener('click', async ev => {
     HIW_SHOW_TECH = !HIW_SHOW_TECH;
     return draw();
   }
-  if (a === 'login') return go(async () => { const r = await api('/auth/login', 'POST', { username: $('u').value, password: $('p').value }); T = r.token; ME = r.user; sessionStorage.setItem('t', T); sessionStorage.setItem('me', JSON.stringify(ME)); V = 'dash'; OUT = null; });
+  if (a === 'tour-start') {
+    TOUR_STEP = 0;
+    TOUR_MODAL = null;
+    TOUR_ACTIVE = true;
+    V = 'dash';
+    return draw();
+  }
+  if (a === 'tour-begin') {
+    TOUR_MODAL = null;
+    TOUR_ACTIVE = true;
+    TOUR_STEP = 0;
+    V = 'dash';
+    return draw();
+  }
+  if (a === 'tour-next') {
+    if (TOUR_STEP < TOUR_STEPS.length - 1) {
+      TOUR_STEP++;
+      return draw();
+    } else {
+      TOUR_ACTIVE = false;
+      TOUR_MODAL = 'done';
+      localStorage.setItem('sih_tour_done_' + (ME ? ME.id : 'anon'), '1');
+      return draw();
+    }
+  }
+  if (a === 'tour-back') {
+    if (TOUR_STEP > 0) TOUR_STEP--;
+    return draw();
+  }
+  if (a === 'tour-skip') {
+    TOUR_ACTIVE = false;
+    TOUR_MODAL = null;
+    localStorage.setItem('sih_tour_done_' + (ME ? ME.id : 'anon'), '1');
+    const old = $('tour-root');
+    if (old) old.remove();
+    return;
+  }
+  if (a === 'tour-close') {
+    TOUR_MODAL = null;
+    TOUR_ACTIVE = false;
+    const old = $('tour-root');
+    if (old) old.remove();
+    return;
+  }
+  if (a === 'login') return go(async () => {
+    const r = await api('/auth/login', 'POST', { username: $('u').value, password: $('p').value });
+    T = r.token;
+    ME = r.user;
+    sessionStorage.setItem('t', T);
+    sessionStorage.setItem('me', JSON.stringify(ME));
+    V = 'dash';
+    OUT = null;
+    // Check if this user has completed the onboarding tour
+    const done = localStorage.getItem('sih_tour_done_' + ME.id);
+    if (!done) {
+      TOUR_MODAL = 'welcome';
+      TOUR_STEP = 0;
+      TOUR_ACTIVE = false;
+    } else {
+      TOUR_MODAL = null;
+      TOUR_ACTIVE = false;
+    }
+  });
   if (a === 'reset') return go(async () => { await api('/reset', 'POST', {}); toast('Demo environment reset'); });
-  if (a === 'logout') { try { await api('/auth/logout', 'POST', {}); } catch {} return signout(); }
+  if (a === 'logout') {
+    try { await api('/auth/logout', 'POST', {}); } catch {}
+    TOUR_ACTIVE = false;
+    TOUR_MODAL = null;
+    const old = $('tour-root');
+    if (old) old.remove();
+    return signout();
+  }
   if (a === 'nav') { V = v; OUT = null; if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; } return draw(); }
   if (a === 'hiw-mode') { HIW_MODE = v; HIW_STEP = 0; if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; } return draw(); }
   if (a === 'hiw-step') { HIW_STEP = parseInt(v, 10); if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; } return draw(); }
