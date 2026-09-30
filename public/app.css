@@ -758,6 +758,354 @@ pre {
 }
 
 /* Stepper Bar */
+/* ==========================================================================
+   PUBLIC "HOW IT WORKS" CINEMATIC & STORYTELLING SYSTEM
+   ========================================================================== */
+
+.hiw-public-wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 20px 60px;
+}
+
+.hiw-public-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--bd);
+}
+
+.hiw-public-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hiw-public-brand h1 {
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  margin: 0;
+  color: var(--tx);
+}
+
+/* Hero First Screen */
+.hiw-hero {
+  text-align: center;
+  max-width: 760px;
+  margin: 36px auto 44px;
+  padding: 40px 24px;
+  background: radial-gradient(circle at 50% 30%, var(--pn-elevated) 0%, var(--pn) 100%);
+  border: 1px solid var(--bd);
+  border-radius: 12px;
+  box-shadow: var(--shadow-md);
+}
+
+.hiw-hero h2 {
+  font-size: 32px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin: 0 0 14px;
+  color: var(--tx);
+}
+
+.hiw-hero-sub {
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--tx-secondary);
+  margin: 0 0 28px;
+}
+
+.hiw-hero-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.hiw-hero-btn {
+  font-size: 15px;
+  font-weight: 700;
+  padding: 13px 30px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  transition: all 0.2s ease;
+}
+
+.hiw-hero-btn.primary {
+  background: var(--ac);
+  color: #040914;
+  border: none;
+  box-shadow: 0 4px 18px rgba(56, 189, 248, 0.35);
+}
+
+.hiw-hero-btn.primary:hover {
+  background: var(--ac-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 22px rgba(56, 189, 248, 0.45);
+}
+
+.hiw-hero-btn.secondary {
+  background: var(--pn-elevated);
+  color: var(--tx);
+  border: 1px solid var(--bd-light);
+}
+
+.hiw-hero-btn.secondary:hover {
+  background: var(--p2);
+  border-color: var(--ac);
+}
+
+/* Story Storyline Bar (Current Step Tracker) */
+.hiw-story-tracker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--pn);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  padding: 10px 18px;
+  margin-bottom: 20px;
+}
+
+.hiw-story-stages {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.hiw-stage-pill {
+  font-size: 11px;
+  font-weight: 700;
+  font-family: var(--font-mono, monospace);
+  padding: 5px 10px;
+  border-radius: 4px;
+  background: var(--bg-base);
+  color: var(--mu);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.hiw-stage-pill.active {
+  background: var(--ac-bg);
+  color: var(--ac);
+  border-color: var(--ac-border);
+  box-shadow: 0 0 8px var(--ac-bg);
+}
+
+.hiw-stage-pill.done {
+  background: rgba(52, 211, 153, 0.08);
+  color: var(--ok);
+  border-color: rgba(52, 211, 153, 0.25);
+}
+
+/* Story Card Header Banner */
+.hiw-story-banner {
+  background: var(--pn-elevated);
+  border: 1px solid var(--bd);
+  border-left: 5px solid var(--ac);
+  border-radius: 8px;
+  padding: 18px 22px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.hiw-banner-left {
+  flex: 1;
+  min-width: 260px;
+}
+
+.hiw-banner-step-num {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--ac);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.hiw-banner-title {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--tx);
+  margin: 0 0 6px;
+}
+
+.hiw-banner-summary {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--tx-secondary);
+  margin: 0;
+}
+
+/* Aha Leaked Document Transition Banner */
+.hiw-leak-banner {
+  background: radial-gradient(circle at 50% 50%, rgba(248, 113, 113, 0.14) 0%, rgba(11, 15, 22, 0.95) 100%);
+  border: 2px solid var(--er);
+  border-radius: 10px;
+  padding: 24px;
+  text-align: center;
+  margin-bottom: 22px;
+  box-shadow: 0 0 24px var(--er-bg);
+  animation: pulseLeak 2s infinite alternate;
+}
+
+@keyframes pulseLeak {
+  from { border-color: rgba(248, 113, 113, 0.4); }
+  to { border-color: var(--er); }
+}
+
+.hiw-leak-title {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--er);
+  margin: 0 0 8px;
+}
+
+.hiw-leak-sub {
+  font-size: 14px;
+  color: var(--tx-secondary);
+  max-width: 650px;
+  margin: 0 auto 16px;
+}
+
+/* Simplified Plain-English Helper Modal / Tooltip */
+.hiw-help-toggle {
+  background: transparent;
+  border: 1px dashed var(--ac);
+  color: var(--ac);
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+}
+
+.hiw-help-toggle:hover {
+  background: var(--ac-bg);
+}
+
+.hiw-plain-help-card {
+  background: var(--bg-base);
+  border: 1px solid var(--ac-border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--tx);
+  margin-top: 10px;
+}
+
+/* Validator Consensus Live Meter */
+.hiw-val-tally {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 12px 0;
+  background: var(--bg-base);
+  border: 1px solid var(--bd-subtle);
+  border-radius: 6px;
+  padding: 10px 14px;
+}
+
+.hiw-tally-score {
+  font-size: 24px;
+  font-weight: 900;
+  font-family: var(--font-mono, monospace);
+  color: var(--ok);
+}
+
+.hiw-tally-bar {
+  flex: 1;
+  height: 8px;
+  background: var(--bd);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.hiw-tally-fill {
+  height: 100%;
+  background: var(--ok);
+  box-shadow: 0 0 8px var(--ok);
+  transition: width 0.4s ease;
+}
+
+/* Visual Document / Artifact Card */
+.hiw-doc-artifact {
+  background: var(--bg-base);
+  border: 1px solid var(--bd);
+  border-radius: 6px;
+  padding: 14px 16px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--tx-secondary);
+  line-height: 1.5;
+  position: relative;
+}
+
+.hiw-doc-badge {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--wr-bg);
+  color: var(--wr);
+  border: 1px solid var(--wr-border);
+}
+
+/* Technical Details Dropdown Collapsible */
+.hiw-tech-collapsible {
+  margin-top: 14px;
+  border: 1px solid var(--bd-subtle);
+  border-radius: 6px;
+  background: var(--pn-elevated);
+  overflow: hidden;
+}
+
+.hiw-tech-trigger {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: transparent;
+  border: none;
+  color: var(--mu);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.hiw-tech-trigger:hover {
+  color: var(--tx);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.hiw-tech-content {
+  padding: 12px 14px;
+  border-top: 1px solid var(--bd-subtle);
+  background: var(--bg-base);
+}
+
 .hiw-stepper {
   display: flex;
   background: var(--pn);

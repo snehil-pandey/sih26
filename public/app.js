@@ -461,13 +461,194 @@ window.addEventListener('orientationchange', () => {
   }, 100);
 });
 
+let PUB_VIEW = 'login'; // 'login' | 'how'
+let HIW_PLAY_MODE = 'hero'; // 'hero' | 'story' | 'explore'
+let HIW_SHOW_TECH = false;
+let HIW_SHOW_HELP = null;
+
+const GLOSSARY = {
+  'AES-256-GCM': { title: 'What is AES-256-GCM?', text: 'The industry-standard symmetric cipher that encrypts the actual contents of the document so nobody without the key can read it.' },
+  'ML-KEM-768': { title: 'What is ML-KEM-768?', text: 'A post-quantum key encapsulation algorithm (simulated in this prototype) used to establish a unique secure key for each recipient.' },
+  'QUORUM': { title: 'What is Quorum?', text: 'The minimum threshold of independent validator nodes (at least 3 out of 5) that must verify and approve an event before it is permanently committed.' },
+  'PROVENANCE': { title: 'What is Provenance?', text: 'Cryptographic proof linking an artifact to the exact person, session, and timestamp that created or decrypted it.' },
+  'WATERMARK': { title: 'What is the Watermark?', text: 'An invisible identifier embedded using zero-width characters into the document representation so leaks can be traced without altering visible text.' },
+  'LEDGER': { title: 'What is the Ledger?', text: 'An immutable, append-only history maintained independently across 5 validator nodes that cannot be silently modified or erased.' }
+};
+
+const STORY_STAGES = [
+  {
+    step: '01',
+    name: 'PROTECT',
+    title: 'Protect the Document',
+    subtitle: 'The document is encrypted before it leaves the system.',
+    explanation: 'The sender starts with Project_Alpha.pdf. The system generates a single-use content key and locks the document contents so only approved parties can open it.',
+    node: 'doc',
+    tech: 'AES-256-GCM (Authenticated Encryption) + SHA-256 Content Hash',
+    term: 'AES-256-GCM',
+    artifact: 'Project_Alpha.pdf',
+    badge: 'CLASSIFIED · CONFIDENTIAL',
+    graphic: `<div class="hiw-doc-artifact"><div class="hiw-doc-badge">CONFIDENTIAL</div><b>Project_Alpha.pdf</b><br><span class="mu">Status:</span> Encrypted payload bound to AAD<br><span class="mu">Cipher:</span> AES-256-GCM (32-byte key)</div>`
+  },
+  {
+    step: '02',
+    name: 'AUTHORIZE',
+    title: 'Recipient Authorization',
+    subtitle: 'The system records that this recipient is authorized to access the document.',
+    explanation: 'The system prepares an individual key capsule for Recipient A (Aarav Sharma). Even if someone else intercepts the document, they cannot decrypt it.',
+    node: 'auth',
+    tech: 'ML-KEM-768 Encapsulation + SENDER-signed AUTHORIZATION Transaction',
+    term: 'ML-KEM-768',
+    artifact: 'Authorization Capsule',
+    badge: 'BOUND TO RECIPIENT A',
+    graphic: `<div class="hiw-doc-artifact"><div class="hiw-doc-badge">AUTHORIZED</div><b>Recipient A (Aarav Sharma)</b><br><span class="mu">Capsule:</span> kem_ct established via ML-KEM-768<br><span class="mu">Transaction:</span> AUT-0019 signed by Commander Arjun</div>`
+  },
+  {
+    step: '03',
+    name: 'VALIDATE',
+    title: 'Validator Network Consensus',
+    subtitle: 'Before this event is recorded, multiple independent validator nodes verify it.',
+    explanation: 'Five separate validator nodes independently check the sender signature and authorization rules. At least 3 must agree to achieve quorum.',
+    node: 'cons',
+    tech: '5-Node Permissioned DLT Consensus · Ed25519 Block Approvals',
+    term: 'QUORUM',
+    artifact: 'Consensus Quorum',
+    badge: 'QUORUM: 5 / 5 APPROVED',
+    graphic: `<div class="hiw-val-tally"><div class="hiw-tally-score">5 / 5</div><div class="hiw-tally-bar"><div class="hiw-tally-fill" style="width:100%"></div></div><span class="tag ok">QUORUM REACHED (>= 3/5)</span></div>`
+  },
+  {
+    step: '04',
+    name: 'RECORD',
+    title: 'Committed to Ledger',
+    subtitle: 'The event is now part of the system’s recorded history.',
+    explanation: 'The authorization is permanently anchored inside an immutable block. No administrator or user can erase this record without breaking chain continuity.',
+    node: 'cons',
+    tech: 'Append-Only Ledger · Hash Continuity · Independent SQLite Storage',
+    term: 'LEDGER',
+    artifact: 'Block #002',
+    badge: 'IMMUTABLE RECORD',
+    graphic: `<div class="hiw-doc-artifact"><div class="hiw-doc-badge">COMMITTED</div><b>Block #002 · Tx TX-7A2F</b><br><span class="mu">Previous Hash:</span> 8f29... unbroken chain link<br><span class="mu">Status:</span> Anchored across NODE-01..05</div>`
+  },
+  {
+    step: '05',
+    name: 'DECRYPT',
+    title: 'Authorized Decryption',
+    subtitle: 'Because the recipient is authorized, the protected document can now be recovered.',
+    explanation: 'Recipient A unlocks their personal key with their credentials, decrypts the session key, and views the plaintext operational briefing.',
+    node: 'dec',
+    tech: 'ML-KEM-768 Decapsulation + AES-256-GCM Authenticated Decryption',
+    term: 'AES-256-GCM',
+    artifact: 'Plaintext Briefing',
+    badge: 'SESSION SES-0192',
+    graphic: `<div class="hiw-doc-artifact"><div class="hiw-doc-badge">DECRYPTED</div><b>PROJECT ALPHA — OPERATIONAL BRIEF</b><br><span class="mu">Recipient:</span> Aarav Sharma (REC-0192)<br><span class="mu">Session ID:</span> SES-8B1A2C3D</div>`
+  },
+  {
+    step: '06',
+    name: 'PROVENANCE',
+    title: 'Provenance & Forensic Watermark',
+    subtitle: 'The system creates indelible provenance evidence associated with the decrypted copy.',
+    explanation: 'An invisible watermark is woven into the text using zero-width characters. A cryptographic provenance record signed by the recipient is anchored to the ledger.',
+    node: 'wm',
+    tech: 'Zero-Width Steganography + ML-DSA-65 Recipient Signature',
+    term: 'WATERMARK',
+    artifact: 'Marked Artifact',
+    badge: 'WM-8F29C01B4D7E5A23',
+    graphic: `<div class="hiw-doc-artifact"><div class="hiw-doc-badge">WATERMARKED</div><b>Hidden Signal Injected:</b><br><span class="mu">Identifier:</span> WM-8F29C01B4D7E5A23<br><span class="mu">Signed Proof:</span> ML-DSA-65 signature committed to ledger</div>`
+  },
+  {
+    step: '07',
+    name: 'LEAK',
+    title: 'What If The Document Is Leaked?',
+    subtitle: 'A copy of the document appears on an unauthorized channel or external website.',
+    explanation: 'An investigator receives only an anonymous leaked text file. There is no recipient label and no database hint. How does the system prove where it came from?',
+    node: 'leak',
+    tech: 'Unbiased Forensic Ingestion · Raw Byte Stream Analysis',
+    term: 'PROVENANCE',
+    artifact: 'Leaked_Alpha_Leak.txt',
+    badge: 'SUSPECT UNKNOWN',
+    graphic: `<div class="hiw-leak-banner"><div class="hiw-leak-title">⚠️ UNIDENTIFIED LEAK DETECTED</div><div class="hiw-leak-sub">A leaked copy of Project Alpha has been discovered. Can the system mathematically trace this back to the exact recipient without guessing?</div><button class="hiw-hero-btn primary" data-a="hiw-trace" style="margin:0 auto">▶ Trace This Document</button></div>`
+  }
+];
+
+const FORENSIC_STAGES = [
+  {
+    step: '01',
+    name: 'ARTEFACT',
+    title: 'Leaked Artifact Ingestion',
+    subtitle: 'The investigator starts with nothing except the leaked text file.',
+    explanation: 'No recipient is pre-selected and no assumptions are made. The investigator uploads the leaked file directly into the forensic engine.',
+    tech: 'Arbitrary Text Stream Ingestion (up to 500,000 characters)',
+    proof: 'Raw character payload parsed for invisible signal'
+  },
+  {
+    step: '02',
+    name: 'WATERMARK',
+    title: 'Watermark Signal Detected',
+    subtitle: 'Invisible zero-width Unicode characters are recovered and decoded.',
+    explanation: 'Even though the visible text looks identical to normal typing, the decoder extracts the hidden zero-width bits and validates their SHA-256 checksum.',
+    tech: 'Regex Extraction · Binary ASCII Recovery · Checksum Parity',
+    proof: 'Recovered Watermark ID: WM-8F29C01B4D7E5A23 (Valid Checksum)'
+  },
+  {
+    step: '03',
+    name: 'LEDGER SEARCH',
+    title: 'Search Recorded History',
+    subtitle: 'The watermark is looked up across the 5 independent validator databases.',
+    explanation: 'The system does not trust the application database; it queries the canonical distributed ledger chain where history cannot be manipulated.',
+    tech: 'Multi-Node DLT Search across verified majority blocks',
+    proof: 'Located PROVENANCE transaction inside Block #003'
+  },
+  {
+    step: '04',
+    name: 'HISTORICAL KEY',
+    title: 'Resolve Historical Key',
+    subtitle: 'The public key registered at the time of decryption is retrieved.',
+    explanation: 'Even if the recipient later rotated or revoked their cryptographic key, their historical key registered on the ledger remains on record.',
+    tech: 'Public Key Registry (Proof of Possession + Rotation History)',
+    proof: 'Identity: CID-0192 · Key: KEY-0192-V1'
+  },
+  {
+    step: '05',
+    name: 'VERIFY SIG',
+    title: 'Verify Cryptographic Signature',
+    subtitle: 'The recipient’s digital signature over the session record is validated.',
+    explanation: 'Mathematical proof that Recipient A’s private key signed the exact document hash, session ID, and watermark ID.',
+    tech: 'ML-DSA-65 (simulated ECDSA-P256) Signature Verification',
+    proof: 'sigVerify(pub, canonicalRecord, sig) === TRUE'
+  },
+  {
+    step: '06',
+    name: 'VERIFY CHAIN',
+    title: 'Verify Block Continuity & Consensus',
+    subtitle: 'The block containing the transaction is checked for validator quorum.',
+    explanation: 'Confirms that the block hash matches, previous hash links are continuous, and independent validator approvals (>= 3/5) are valid.',
+    tech: 'SHA-256 Block Continuity · Ed25519 Validator Signatures',
+    proof: 'Block #003: 5/5 valid validator approvals'
+  },
+  {
+    step: '07',
+    name: 'ATTRIBUTION',
+    title: 'Forensic Attribution Verdict',
+    subtitle: 'Mathematical proof links the leak directly to the decryption session.',
+    explanation: 'The system renders VERIFIED_PROVENANCE_MATCH. The evidence chain is complete from leaked text to recipient identity.',
+    tech: 'Multi-Stage Mathematical Proof Construction',
+    proof: 'ATTRIBUTION: Aarav Sharma (REC-0192) · Decryption Session SES-0192'
+  }
+];
+
 async function draw() {
   const A = $('app');
   if (isMobile()) {
     A.innerHTML = `<div class="login" style="max-width:440px;text-align:center"><div class="l" style="color:var(--er);margin-bottom:8px">SECURITY ENCLAVE · ACCESS RESTRICTED</div><h2>DESKTOP WORKSTATION REQUIRED</h2><p class="sub" style="margin-top:10px;line-height:1.6">The <b>SIH26237 Cryptographic Decryption Provenance & Attribution System</b> is restricted to authorized defense terminal consoles and desktop workstations.<br><br>Mobile devices, handsets, and handheld web browsers are strictly disallowed by enclave security policy.</p><div class="c" style="text-align:left;font-size:12px;margin:16px 0"><div class="l">Terminal Diagnostics</div><div class="m mu">CLIENT_AGENT: ${e(navigator.userAgent.slice(0, 70))}…<br>SECURITY_POLICY: DESKTOP_ENCLAVE_ONLY<br>STATUS: ACCESS_DENIED</div></div><p class="mu m" style="font-size:11px">Please access this console from an authorized workstation terminal.</p></div>`;
     return;
   }
+
+  // --- PUBLIC UNAUTHENTICATED EXPERIENCE ---
   if (!ME) {
+    if (PUB_VIEW === 'how') {
+      A.innerHTML = renderPublicHowItWorks();
+      return;
+    }
+
     const PRESETS = [
       ['sender', 'Commander Arjun (SENDER)'],
       ['aarav', 'Aarav Sharma (RECIPIENT)'],
@@ -477,13 +658,219 @@ async function draw() {
       ['forensic', 'Forensic Officer (INVESTIGATOR)'],
       ['admin', 'System Administrator (ADMIN)']
     ];
-    A.innerHTML = `<div class="login"><div class="l" style="color:var(--ac)">SIH26237 · SIMULATION</div><h2>PROVENANCE</h2><p class="sub">Secure document attribution system</p><input id="u" placeholder="username" autocomplete="username" value="sender"><input id="p" type="password" placeholder="password" autocomplete="current-password" value="demo1234"><button class="p" data-a="login" style="width:100%;margin-top:6px">Authenticate</button><div class="l" style="margin:16px 0 6px">Quick login presets</div><div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px">${PRESETS.map(([u, lbl]) => `<button type="button" class="s" data-a="fill" data-v="${e(u)}" title="${e(lbl)}">${e(u)}</button>`).join('')}</div><button data-a="reset" style="width:100%">Reset demo environment</button></div>`;
+    A.innerHTML = `<div class="login">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <div class="l" style="color:var(--ac);margin:0">SIH26237 · PROTOTYPE</div>
+        <button type="button" class="s" data-a="pub-how" style="color:var(--ac);border-color:var(--ac-border)">How It Works ▶</button>
+      </div>
+      <h2>PROVENANCE</h2>
+      <p class="sub">Secure document attribution system</p>
+      <input id="u" placeholder="username" autocomplete="username" value="sender">
+      <input id="p" type="password" placeholder="password" autocomplete="current-password" value="demo1234">
+      <button class="p" data-a="login" style="width:100%;margin-top:6px">Authenticate</button>
+      <div class="l" style="margin:16px 0 6px">Quick login presets</div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px">
+        ${PRESETS.map(([u, lbl]) => `<button type="button" class="s" data-a="fill" data-v="${e(u)}" title="${e(lbl)}">${e(u)}</button>`).join('')}
+      </div>
+      <button data-a="reset" style="width:100%">Reset demo environment</button>
+    </div>`;
     return;
   }
+
+  // --- AUTHENTICATED EXPERIENCE ---
   const nav = NAV[ME.role]; if (!nav.some(n => n[0] === V)) V = 'dash';
   let body; try { body = await VIEW[V](); } catch (x) { body = `<div class="res er">${e(x.message)}</div>`; }
   const timeStr = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
   A.innerHTML = `<aside><h1>PROVENANCE</h1>${nav.map(n => `<button class="nv ${V === n[0] ? 'on' : ''}" data-a="nav" data-v="${n[0]}">${n[1]}</button>`).join('')}</aside><main><div class="top"><span class="chip">DEMO MODE</span><span class="chip a">CRYPTO: SIMULATION</span><span class="chip" style="color:var(--tx);border-color:var(--bd-light);background:var(--pn-elevated)"><span style="display:inline-block;width:6px;height:6px;background:var(--ok);border-radius:50%;margin-right:6px;box-shadow:0 0 6px var(--ok)"></span><span id="live-clock" class="m">${timeStr}</span></span><span style="flex:1"></span><span>${e(ME.name)} <span class="mu m">${e(ME.id)} · ${e(ME.role)}</span></span><button data-a="logout">Sign out</button></div>${body}</main>`;
+}
+
+function renderPublicHowItWorks() {
+  const isForensic = HIW_MODE === 'forensic';
+  const stages = isForensic ? FORENSIC_STAGES : STORY_STAGES;
+  const curIdx = Math.min(HIW_STEP, stages.length - 1);
+  const cur = stages[curIdx];
+
+  return `<div class="hiw-public-wrap">
+    <!-- Top Bar Navigation -->
+    <div class="hiw-public-nav">
+      <div class="hiw-public-brand">
+        <span class="chip a">PUBLIC EXPLAINER</span>
+        <h1>PROVENANCE · HOW IT WORKS</h1>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="s" data-a="pub-login">Console Login 🔐</button>
+      </div>
+    </div>
+
+    ${HIW_PLAY_MODE === 'hero' ? `
+      <!-- First Screen: Simple Hero -->
+      <div class="hiw-hero">
+        <div class="l" style="color:var(--ac);margin-bottom:8px">DEFENSE DOCUMENT PROVENANCE &amp; ATTRIBUTION</div>
+        <h2>HOW IT WORKS</h2>
+        <p class="hiw-hero-sub">See how a confidential document is protected, authorized, recorded, decrypted, and later traced if an unauthorized leak occurs.</p>
+        <div class="hiw-hero-cta">
+          <button class="hiw-hero-btn primary" data-a="hiw-start">▶ START THE DEMONSTRATION</button>
+          <button class="hiw-hero-btn secondary" data-a="hiw-explore">EXPLORE THE SYSTEM</button>
+        </div>
+      </div>
+    ` : `
+      <!-- Guided Story & Exploration View -->
+      <div class="hiw-story-tracker">
+        <div class="hiw-story-stages">
+          ${stages.map((st, i) => `
+            <button class="hiw-stage-pill ${i === curIdx ? 'active' : i < curIdx ? 'done' : ''}" data-a="hiw-step" data-v="${i}">
+              ${i < curIdx ? '✓ ' : ''}${st.step} ${st.name}
+            </button>
+          `).join('')}
+        </div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <button class="s" data-a="hiw-prev" ${curIdx === 0 ? 'disabled' : ''}>◀ Prev</button>
+          <button class="p s" data-a="hiw-demo">${HIW_AUTOPLAY ? '⏸ Pause' : '▶ Play Story'}</button>
+          <button class="s" data-a="hiw-next" ${curIdx === stages.length - 1 ? 'disabled' : ''}>Next ▶</button>
+        </div>
+      </div>
+
+      <!-- Story Stage Header Banner -->
+      <div class="hiw-story-banner">
+        <div class="hiw-banner-left">
+          <div class="hiw-banner-step-num">STAGE ${cur.step} — ${cur.name}</div>
+          <h3 class="hiw-banner-title">${cur.title}</h3>
+          <p class="hiw-banner-summary"><b>${cur.subtitle}</b></p>
+          <p style="margin:8px 0 0;color:var(--tx-secondary);font-size:13.5px">${cur.explanation}</p>
+        </div>
+        <div>
+          ${cur.term ? `
+            <button class="hiw-help-toggle" data-a="hiw-help" data-v="${cur.term}">
+              <span>❓</span> What is ${cur.term}?
+            </button>
+          ` : ''}
+        </div>
+      </div>
+
+      ${HIW_SHOW_HELP ? `
+        <div class="hiw-plain-help-card">
+          <b>${GLOSSARY[HIW_SHOW_HELP]?.title || HIW_SHOW_HELP}</b>
+          <p style="margin:4px 0 0;color:var(--tx-secondary)">${GLOSSARY[HIW_SHOW_HELP]?.text || ''}</p>
+        </div>
+      ` : ''}
+
+      <!-- Interactive 2.5D Model & Evidence Representation Splitter -->
+      <div class="hiw-split" style="margin-top:16px">
+        <div class="hiw-viewport">
+          <div class="hiw-grid-bg"></div>
+          <div class="hiw-scene-25d">
+            <svg class="hiw-svg-overlay">
+              <line x1="15%" y1="30%" x2="50%" y2="30%" stroke="var(--bd-light)" stroke-width="2" stroke-dasharray="4,4"/>
+              <line x1="50%" y1="30%" x2="85%" y2="30%" stroke="var(--bd-light)" stroke-width="2" stroke-dasharray="4,4"/>
+              <line x1="85%" y1="30%" x2="85%" y2="70%" stroke="var(--bd-light)" stroke-width="2" stroke-dasharray="4,4"/>
+              <line x1="85%" y1="70%" x2="50%" y2="70%" stroke="var(--bd-light)" stroke-width="2" stroke-dasharray="4,4"/>
+              <line x1="50%" y1="70%" x2="15%" y2="70%" stroke="var(--bd-light)" stroke-width="2" stroke-dasharray="4,4"/>
+            </svg>
+
+            ${!isForensic ? `
+              <div class="hiw-node ${curIdx === 0 ? 'active-node' : curIdx > 0 ? 'passed-node' : ''}" style="left:8%;top:20%" data-a="hiw-step" data-v="0">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">01 · DOCUMENT</div></div>
+                <div class="hiw-node-sub">Project_Alpha.pdf</div>
+              </div>
+              <div class="hiw-node ${curIdx === 1 ? 'active-node' : curIdx > 1 ? 'passed-node' : ''}" style="left:40%;top:20%" data-a="hiw-step" data-v="1">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">02 · ENCRYPT</div></div>
+                <div class="hiw-node-sub">AES-256-GCM</div>
+              </div>
+              <div class="hiw-node ${curIdx === 2 ? 'active-node' : curIdx > 2 ? 'passed-node' : ''}" style="left:72%;top:20%" data-a="hiw-step" data-v="2">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">03 · AUTHORIZE</div></div>
+                <div class="hiw-node-sub">ML-KEM-768 Encap</div>
+              </div>
+              <div class="hiw-node ${curIdx === 3 ? 'active-node' : curIdx > 3 ? 'passed-node' : ''}" style="left:72%;top:64%" data-a="hiw-step" data-v="3">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">04 · RECORDED</div></div>
+                <div class="hiw-node-sub">DLT Block #002</div>
+              </div>
+              <div class="hiw-node ${curIdx === 4 ? 'active-node' : curIdx > 4 ? 'passed-node' : ''}" style="left:40%;top:64%" data-a="hiw-step" data-v="4">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">05 · DECRYPT</div></div>
+                <div class="hiw-node-sub">Session SES-0192</div>
+              </div>
+              <div class="hiw-node ${curIdx === 5 ? 'active-node' : curIdx > 5 ? 'passed-node' : ''}" style="left:8%;top:64%" data-a="hiw-step" data-v="5">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">06 · PROVENANCE</div></div>
+                <div class="hiw-node-sub">Zero-Width Mark</div>
+              </div>
+
+              <!-- Orbiting 5-Validator Consensus Nodes -->
+              <div class="hiw-val-cluster" style="left:calc(50% - 120px);top:calc(50% - 120px);opacity:${curIdx === 2 || curIdx === 3 ? '1' : '0.35'}">
+                <div class="hiw-val-node ${curIdx >= 2 ? 'approved' : ''}" style="top:-23px;left:97px">N01</div>
+                <div class="hiw-val-node ${curIdx >= 2 ? 'approved' : ''}" style="top:52px;right:-23px">N02</div>
+                <div class="hiw-val-node ${curIdx >= 2 ? 'approved' : ''}" style="bottom:12px;right:15px">N03</div>
+                <div class="hiw-val-node ${curIdx >= 2 ? 'approved' : ''}" style="bottom:12px;left:15px">N04</div>
+                <div class="hiw-val-node ${curIdx >= 2 ? 'approved' : ''}" style="top:52px;left:-23px">N05</div>
+              </div>
+              <div class="hiw-val-center" style="position:absolute;left:calc(50% - 75px);top:calc(50% - 24px);width:150px;opacity:${curIdx >= 2 ? '1' : '0.4'}">
+                <div style="font-weight:700;color:${curIdx >= 2 ? 'var(--ok)' : 'var(--tx)'}">VALIDATOR CONSENSUS</div>
+                <div style="font-size:10px;color:var(--mu)">${curIdx >= 2 ? '5 / 5 APPROVED (QUORUM OK)' : 'STANDBY'}</div>
+              </div>
+            ` : `
+              <!-- Forensic Mode Nodes -->
+              <div class="hiw-node ${curIdx === 0 ? 'active-node' : curIdx > 0 ? 'passed-node' : ''}" style="left:8%;top:20%" data-a="hiw-step" data-v="0">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">01 · ARTEFACT</div></div>
+                <div class="hiw-node-sub">Leaked Text File</div>
+              </div>
+              <div class="hiw-node ${curIdx === 1 ? 'active-node' : curIdx > 1 ? 'passed-node' : ''}" style="left:40%;top:20%" data-a="hiw-step" data-v="1">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">02 · WATERMARK</div></div>
+                <div class="hiw-node-sub">WM-8F29C01B4D7E5A23</div>
+              </div>
+              <div class="hiw-node ${curIdx === 2 ? 'active-node' : curIdx > 2 ? 'passed-node' : ''}" style="left:72%;top:20%" data-a="hiw-step" data-v="2">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">03 · DLT SEARCH</div></div>
+                <div class="hiw-node-sub">Canonical Blocks</div>
+              </div>
+              <div class="hiw-node ${curIdx === 3 ? 'active-node' : curIdx > 3 ? 'passed-node' : ''}" style="left:72%;top:64%" data-a="hiw-step" data-v="3">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">04 · HIST KEY</div></div>
+                <div class="hiw-node-sub">KEY-0192-V1</div>
+              </div>
+              <div class="hiw-node ${curIdx === 4 ? 'active-node' : curIdx > 4 ? 'passed-node' : ''}" style="left:40%;top:64%" data-a="hiw-step" data-v="4">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">05 · VERIFY SIG</div></div>
+                <div class="hiw-node-sub">ML-DSA-65 Valid</div>
+              </div>
+              <div class="hiw-node ${curIdx === 5 ? 'active-node' : curIdx > 5 ? 'passed-node' : ''}" style="left:8%;top:64%" data-a="hiw-step" data-v="5">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">06 · CHAIN AUDIT</div></div>
+                <div class="hiw-node-sub">5/5 Approvals</div>
+              </div>
+              <div class="hiw-node ${curIdx === 6 ? 'active-node' : ''}" style="left:calc(50% - 90px);top:calc(50% - 30px);width:180px;text-align:center" data-a="hiw-step" data-v="6">
+                <div class="hiw-node-header" style="justify-content:center"><div class="hiw-node-indicator" style="background:${curIdx === 6 ? 'var(--ok)' : 'var(--mu)'}"></div><div class="hiw-node-title">ATTRIBUTION</div></div>
+                <div class="hiw-node-sub" style="color:${curIdx === 6 ? 'var(--ok)' : 'var(--mu)'}">${curIdx === 6 ? 'Aarav Sharma (REC-0192)' : 'PENDING'}</div>
+              </div>
+            `}
+          </div>
+        </div>
+
+        <!-- Evidentiary Presentation & Progressive Disclosure Panel -->
+        <div class="hiw-explainer-panel">
+          <div class="hiw-qa-block">
+            <div class="hiw-q-label what"><span>●</span> WHAT HAPPENS HERE</div>
+            <div class="hiw-q-desc">${cur.explanation}</div>
+          </div>
+
+          <div class="hiw-qa-block">
+            <div class="hiw-q-label why"><span>●</span> VISIBLE ARTIFACT EVIDENCE</div>
+            ${cur.graphic || `<div class="hiw-proof-box">${cur.proof || ''}</div>`}
+          </div>
+
+          <!-- Progressive Disclosure for Technical Details -->
+          <div class="hiw-tech-collapsible">
+            <button class="hiw-tech-trigger" data-a="hiw-toggle-tech">
+              <span>TECHNICAL DETAILS</span>
+              <span>${HIW_SHOW_TECH ? '▲ Hide' : '▼ Inspect How'}</span>
+            </button>
+            ${HIW_SHOW_TECH ? `
+              <div class="hiw-tech-content">
+                <div class="m" style="color:var(--ac);margin-bottom:6px">${cur.tech}</div>
+                <div class="m mu" style="font-size:11.5px;line-height:1.5">
+                  Algorithm Implementation: Simulated PQC primitives (ECDSA-P256 for ML-DSA-65, X25519 HKDF for ML-KEM-768).<br>
+                  Persistence Store: Independent SQLite validator databases with Ed25519 signatures.
+                </div>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      </div>
+    `}
+  </div>`;
 }
 
 setInterval(() => {
@@ -496,6 +883,64 @@ document.addEventListener('click', async ev => {
   if (a === 'fill') { if ($('u')) $('u').value = v; if ($('p')) $('p').value = 'demo1234'; return; }
   if (a === 'ev') { if (OUT?.inv) $('evd').textContent = JSON.stringify(EVID(OUT.inv)[v], null, 1); return; }
   const go = async f => { try { await f(); } catch (x) { OUT = null; toast(x.message); } draw(); };
+  if (a === 'pub-how') { PUB_VIEW = 'how'; HIW_PLAY_MODE = 'hero'; HIW_STEP = 0; if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; } return draw(); }
+  if (a === 'pub-login') { PUB_VIEW = 'login'; if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; } return draw(); }
+  if (a === 'hiw-start') {
+    HIW_PLAY_MODE = 'story';
+    HIW_MODE = 'dist';
+    HIW_STEP = 0;
+    HIW_SHOW_HELP = null;
+    draw();
+    if (HIW_AUTOPLAY) clearInterval(HIW_AUTOPLAY);
+    HIW_AUTOPLAY = setInterval(() => {
+      const max = (HIW_MODE === 'forensic' ? FORENSIC_STAGES : STORY_STAGES).length - 1;
+      if (HIW_STEP < max) {
+        HIW_STEP++;
+        draw();
+      } else {
+        clearInterval(HIW_AUTOPLAY);
+        HIW_AUTOPLAY = null;
+        draw();
+      }
+    }, 2800);
+    return;
+  }
+  if (a === 'hiw-explore') {
+    HIW_PLAY_MODE = 'explore';
+    HIW_MODE = 'dist';
+    HIW_STEP = 0;
+    HIW_SHOW_HELP = null;
+    if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; }
+    return draw();
+  }
+  if (a === 'hiw-trace') {
+    HIW_MODE = 'forensic';
+    HIW_STEP = 0;
+    HIW_PLAY_MODE = 'story';
+    HIW_SHOW_HELP = null;
+    draw();
+    if (HIW_AUTOPLAY) clearInterval(HIW_AUTOPLAY);
+    HIW_AUTOPLAY = setInterval(() => {
+      const max = FORENSIC_STAGES.length - 1;
+      if (HIW_STEP < max) {
+        HIW_STEP++;
+        draw();
+      } else {
+        clearInterval(HIW_AUTOPLAY);
+        HIW_AUTOPLAY = null;
+        draw();
+      }
+    }, 2600);
+    return;
+  }
+  if (a === 'hiw-help') {
+    HIW_SHOW_HELP = HIW_SHOW_HELP === v ? null : v;
+    return draw();
+  }
+  if (a === 'hiw-toggle-tech') {
+    HIW_SHOW_TECH = !HIW_SHOW_TECH;
+    return draw();
+  }
   if (a === 'login') return go(async () => { const r = await api('/auth/login', 'POST', { username: $('u').value, password: $('p').value }); T = r.token; ME = r.user; sessionStorage.setItem('t', T); sessionStorage.setItem('me', JSON.stringify(ME)); V = 'dash'; OUT = null; });
   if (a === 'reset') return go(async () => { await api('/reset', 'POST', {}); toast('Demo environment reset'); });
   if (a === 'logout') { try { await api('/auth/logout', 'POST', {}); } catch {} return signout(); }
@@ -503,16 +948,19 @@ document.addEventListener('click', async ev => {
   if (a === 'hiw-mode') { HIW_MODE = v; HIW_STEP = 0; if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; } return draw(); }
   if (a === 'hiw-step') { HIW_STEP = parseInt(v, 10); if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; } return draw(); }
   if (a === 'hiw-prev') { if (HIW_STEP > 0) HIW_STEP--; return draw(); }
-  if (a === 'hiw-next') { const max = HIW_STEPS[HIW_MODE].length - 1; if (HIW_STEP < max) HIW_STEP++; return draw(); }
+  if (a === 'hiw-next') {
+    const listLen = (HIW_MODE === 'forensic' ? FORENSIC_STAGES : STORY_STAGES).length;
+    if (HIW_STEP < listLen - 1) HIW_STEP++;
+    return draw();
+  }
   if (a === 'hiw-demo') {
     if (HIW_AUTOPLAY) {
       clearInterval(HIW_AUTOPLAY);
       HIW_AUTOPLAY = null;
     } else {
-      HIW_STEP = 0;
       draw();
       HIW_AUTOPLAY = setInterval(() => {
-        const max = HIW_STEPS[HIW_MODE].length - 1;
+        const max = (HIW_MODE === 'forensic' ? FORENSIC_STAGES : STORY_STAGES).length - 1;
         if (HIW_STEP < max) {
           HIW_STEP++;
           draw();
@@ -521,7 +969,7 @@ document.addEventListener('click', async ev => {
           HIW_AUTOPLAY = null;
           draw();
         }
-      }, 2200);
+      }, 2600);
     }
     return draw();
   }
