@@ -27,11 +27,12 @@ let TOUR_MODAL = null; // 'welcome' | 'done' | null
 
 const TOUR_STEPS = [
   {
-    target: "aside",
+    target: "main .c:first-of-type",
+    fallback: "aside",
     view: "dash",
-    title: "Main Operations Workspace",
-    desc: "Welcome to your defense terminal console. The sidebar lets you navigate between document management, cryptographic identities, and consensus monitoring.",
-    why: "Provides role-governed access boundaries across the provenance enclave."
+    title: "Consensus & Operations Workspace",
+    desc: "Welcome to your defense terminal console. This dashboard monitors real-time consensus agreement across all air-gapped validator nodes.",
+    why: "Provides immediate visibility into DLT quorum health, node synchronization, and active chain head."
   },
   {
     target: "button[data-v='docs']",
@@ -826,16 +827,33 @@ function renderTour() {
   const d = document.createElement('div');
   d.id = 'tour-root';
 
-  // Calculate tooltip placement
-  const isRight = rect.left + rect.width + 360 < window.innerWidth;
-  const isBottom = rect.bottom + 260 < window.innerHeight;
+  // Calculate tooltip placement outside the spotlight bounds
+  const hasRoomRight = rect.right + 360 < window.innerWidth;
+  const hasRoomBelow = rect.bottom + 260 < window.innerHeight;
+  const hasRoomLeft = rect.left > 360;
 
-  let tipLeft = isRight ? rect.right + 16 : Math.max(16, rect.left);
-  let tipTop = isBottom ? rect.top : Math.max(70, rect.bottom - 220);
+  let tipLeft = 20;
+  let tipTop = 80;
+  let arrowClass = 'top';
 
-  // Bounds checking
-  if (tipLeft + 350 > window.innerWidth) tipLeft = window.innerWidth - 365;
-  if (tipTop + 300 > window.innerHeight) tipTop = window.innerHeight - 320;
+  if (hasRoomRight) {
+    tipLeft = rect.right + 18;
+    tipTop = Math.max(70, Math.min(window.innerHeight - 300, rect.top));
+    arrowClass = 'left';
+  } else if (hasRoomBelow) {
+    tipLeft = Math.max(20, Math.min(window.innerWidth - 370, rect.left));
+    tipTop = rect.bottom + 18;
+    arrowClass = 'top';
+  } else if (hasRoomLeft) {
+    tipLeft = Math.max(20, rect.left - 365);
+    tipTop = Math.max(70, Math.min(window.innerHeight - 300, rect.top));
+    arrowClass = 'right';
+  } else {
+    // Top fallback
+    tipLeft = Math.max(20, Math.min(window.innerWidth - 370, rect.left));
+    tipTop = Math.max(70, rect.top - 240);
+    arrowClass = 'bottom';
+  }
 
   document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
   if (el) el.classList.add('tour-highlighted-element');
@@ -848,7 +866,7 @@ function renderTour() {
       height: ${rect.height + 8}px;
     "></div>
     <div class="tour-tooltip-card" style="top: ${tipTop + window.scrollY}px; left: ${tipLeft}px">
-      <div class="tour-pointer-arrow ${isRight ? 'left' : 'top'}"></div>
+      <div class="tour-pointer-arrow ${arrowClass}"></div>
       <div class="tour-header">
         <span class="tour-step-tag">STEP ${TOUR_STEP + 1} OF ${TOUR_STEPS.length}</span>
         <button type="button" class="s" data-a="tour-skip" style="font-size:10.5px;padding:2px 6px">Skip</button>
