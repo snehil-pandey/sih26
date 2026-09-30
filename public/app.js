@@ -15,15 +15,363 @@ function signout() { T = null; ME = null; sessionStorage.clear(); draw(); }
 const tag = (ok, a = 'VALID', b = 'INVALID') => `<span class="tag ${ok ? 'ok' : 'er'}">${ok ? a : b}</span>`;
 const kv = (a, b) => `<tr><td class="l">${a}</td><td>${b}</td></tr>`;
 const NAV = {
-  SENDER: [['dash', 'Command center'], ['docs', 'Documents'], ['sess', 'Sessions'], ['led', 'Provenance ledger'], ['val', 'Validators'], ['aud', 'Audit']],
-  RECIPIENT: [['dash', 'Command center'], ['docs', 'My documents'], ['sess', 'My sessions'], ['id', 'Cryptographic identity']],
-  INVESTIGATOR: [['dash', 'Command center'], ['inv', 'Investigations'], ['led', 'Provenance ledger'], ['val', 'Validators'], ['lab', 'Security lab'], ['aud', 'Audit']],
-  ADMIN: [['dash', 'Command center'], ['docs', 'Documents'], ['sess', 'Sessions'], ['led', 'Provenance ledger'], ['val', 'Validators'], ['id', 'Identities & keys'], ['lab', 'Security lab'], ['aud', 'Audit']],
+  SENDER: [['dash', 'Command center'], ['how', 'How it works'], ['docs', 'Documents'], ['sess', 'Sessions'], ['led', 'Provenance ledger'], ['val', 'Validators'], ['aud', 'Audit']],
+  RECIPIENT: [['dash', 'Command center'], ['how', 'How it works'], ['docs', 'My documents'], ['sess', 'My sessions'], ['id', 'Cryptographic identity']],
+  INVESTIGATOR: [['dash', 'Command center'], ['how', 'How it works'], ['inv', 'Investigations'], ['led', 'Provenance ledger'], ['val', 'Validators'], ['lab', 'Security lab'], ['aud', 'Audit']],
+  ADMIN: [['dash', 'Command center'], ['how', 'How it works'], ['docs', 'Documents'], ['sess', 'Sessions'], ['led', 'Provenance ledger'], ['val', 'Validators'], ['id', 'Identities & keys'], ['lab', 'Security lab'], ['aud', 'Audit']],
 };
 const syncTag = n => `<span class="tag ${n.sync === 'IN_SYNC' ? 'ok' : n.sync === 'BEHIND' || n.sync === 'OFFLINE' ? 'wr' : 'er'}">${e(n.sync.replace('_', ' '))}</span>`;
-const evBox = x => `<table>${kv('Signature (ML-DSA-65, simulated)', tag(x.signatureValid))}${kv('Transaction', tag(x.transactionValid))}${kv('Block + approvals', tag(x.blockValid, 'VALID', 'INVALID') + ` <span class="m mu">${x.approvals} valid approvals</span>`)}${kv('Chain', tag(x.chainValid))}${kv('Validator agreement', tag(x.validatorAgreement.agreed, 'AGREED', 'NO QUORUM') + ` <span class="m mu">${x.validatorAgreement.inSync}/${x.validatorAgreement.total} in sync${x.validatorAgreement.diverged.length ? ' · diverged: ' + e(x.validatorAgreement.diverged.join(', ')) : ''}</span>`)}${x.key ? kv('Key', `<span class="m">${e(x.key.keyId)} · ${e(x.key.status)}</span>`) : ''}</table>`;
+let HIW_MODE = 'dist'; // 'dist' | 'forensic'
+let HIW_STEP = 0;
+let HIW_AUTOPLAY = null;
+
+const HIW_STEPS = {
+  dist: [
+    {
+      id: 'doc',
+      snum: '01 / 07',
+      title: 'Document Ingestion',
+      node: 'doc',
+      what: 'Plaintext document created & classified',
+      why: 'Initiates a controlled defense document with explicit classification and intended recipient access boundaries.',
+      proof: 'Document Hash: SHA-256(content) generated and anchored on creation.',
+      specs: [['Bulk Enc Scheme', 'AES-256-GCM'], ['Classification', 'RESTRICTED / CONFIDENTIAL / SECRET'], ['Document ID', 'DOC-0001 (Monotonic)']],
+      micro: `<div class="m mu">PLAINTEXT (Classified Brief)<br>└── Objective: Secure northern logistics corridor<br>└── Document Hash: <span style="color:var(--ac)">e3b0c442...8b1a</span></div>`
+    },
+    {
+      id: 'enc',
+      snum: '02 / 07',
+      title: 'Bulk Encryption',
+      node: 'enc',
+      what: 'Random 256-bit Content Encryption Key (CEK) generated; payload encrypted via AES-256-GCM.',
+      why: 'Guarantees confidentiality and cryptographic integrity with Authenticated Additional Data (AAD) binding.',
+      proof: 'Ciphertext + 96-bit IV + 128-bit Authentication Tag bound to `doc:${id}:${version}`.',
+      specs: [['Symmetric Cipher', 'AES-256-GCM (Real)'], ['Key Length', '256 bits (32 bytes)'], ['AAD Binding', 'doc:DOC-0001:1.0']],
+      micro: `<div class="m mu">CEK [Random 32 Bytes] ──▶ AES-256-GCM<br>├── IV: 12-byte nonce<br>├── AAD: doc:DOC-0001:1.0<br>└── Tag: 16-byte cryptographic auth tag</div>`
+    },
+    {
+      id: 'auth',
+      snum: '03 / 07',
+      title: 'Recipient Authorization',
+      node: 'auth',
+      what: 'Per-recipient key establishment (ML-KEM-768 sim.) & SENDER-signed AUTHORIZATION transaction.',
+      why: 'Ensures only recipients possessing registered private KEM keys can ever unwrap the CEK, while the ledger records sender intent.',
+      proof: 'Signed AUTHORIZATION transaction committed to ledger; CEK wrapped under KEM shared secret.',
+      specs: [['Key Establishment', 'ML-KEM-768 (X25519+HKDF sim)'], ['Sender Signature', 'ML-DSA-65 (ECDSA-P256 sim)'], ['Auth Record', 'AUT-XXXXXXXX']],
+      micro: `<div class="m mu">RECIPIENT PUBKEY ──▶ kemEncap()<br>├── Ciphertext: kem_ct (sent to recipient)<br>└── Shared Secret ──▶ Wraps CEK (AES-256-GCM)<br>SENDER Private Key ──▶ Signs AUTHORIZATION tx</div>`
+    },
+    {
+      id: 'dec',
+      snum: '04 / 07',
+      title: 'Authorized Decryption',
+      node: 'dec',
+      what: 'Recipient unlocks KEM private key via credential-derived KEK, decapsulates CEK, and recovers plaintext.',
+      why: 'Enforces strict access control: non-authorized identities are stopped immediately with no session or ledger trace created.',
+      proof: 'Session row created atomically upon successful validation; key derivation executed entirely client-side/in-memory.',
+      specs: [['Key Protection', 'AES-256-GCM under scrypt KEK'], ['Decap Function', 'kemDecap(priv, kem_ct)'], ['Session ID', 'SES-XXXXXXXX']],
+      micro: `<div class="m mu">Recipient Password ──scrypt──▶ KEK<br>└── Unlocks Recipient KEM Private Key<br>└── kemDecap(priv, kem_ct) ──▶ Recover CEK<br>└── AES-256-GCM Decrypt ──▶ Plaintext</div>`
+    },
+    {
+      id: 'wm',
+      snum: '05 / 07',
+      title: 'Forensic Watermarking',
+      node: 'wm',
+      what: 'Opaque 64-bit random identifier (`WM-XXXXXXXXXXXXXXXX`) embedded into plaintext using zero-width characters.',
+      why: 'Permanently binds the specific decrypted representation to that recipient and session without altering human readability.',
+      proof: 'Zero-width Unicode codepoints (`\\u200b`, `\\u200c`, `\\u2060`) inserted with SHA-256 parity checksum.',
+      specs: [['Watermark ID', 'WM-[0-9A-F]{16}'], ['Encoding', 'Binary into Zero-Width Characters'], ['Check Parity', 'sha256(wm-check:id)[0..4]']],
+      micro: `<div class="m mu">Generated: <span style="color:var(--wr)">WM-8F29C01B4D7E5A23</span><br>└── Encoded as: \\u2060[\\u200b\\u200c...]\\u2060<br>└── Injected at document newline offsets</div>`
+    },
+    {
+      id: 'prov',
+      snum: '06 / 07',
+      title: 'Signed Provenance Tx',
+      node: 'prov',
+      what: 'Recipient automatically signs canonical provenance record {docId, recipientId, sessionId, watermarkId, keyId, authId}.',
+      why: 'Creates irrefutable mathematical evidence of the decryption event directly signed by the recipient’s active key.',
+      proof: 'ML-DSA-65 signature over canonical JSON serialization verified against registered ledger public key.',
+      specs: [['Signature Alg', 'ML-DSA-65 (simulated)'], ['Tx Type', 'PROVENANCE'], ['Canonicalization', 'Order-independent recursive JSON']],
+      micro: `<div class="m mu">Provenance Record: { docId, recipientId, sessionId, watermarkId... }<br>└── Recipient Key: KEY-0192-V1<br>└── ML-DSA-65 Signature: <span style="color:var(--ok)">MEQCID...</span></div>`
+    },
+    {
+      id: 'cons',
+      snum: '07 / 07',
+      title: 'Consensus & Ledger Commit',
+      node: 'cons',
+      what: 'Transaction broadcast to 5 independent validator SQLite nodes; commits upon reaching quorum (≥ 3/5 approvals).',
+      why: 'Prevents single-point-of-failure or unauthorized tampering by requiring independent multi-node state verification.',
+      proof: 'Block committed with Ed25519 node approvals, SHA-256 hash continuity, and immutability.',
+      specs: [['Consensus Quorum', '>= 3 of 5 Node Approvals'], ['Node Signatures', 'Ed25519 over Block Hash'], ['Validator Stores', 'NODE-01.db ... NODE-05.db']],
+      micro: `<div class="m mu">5 Independent Validators:<br>├── NODE-01 [APPROVED]  NODE-02 [APPROVED]<br>├── NODE-03 [APPROVED]  NODE-04 [APPROVED]<br>└── NODE-05 [APPROVED] ──▶ <span style="color:var(--ok)">QUORUM (5/5) ──▶ BLOCK #N</span></div>`
+    }
+  ],
+  forensic: [
+    {
+      id: 'leak',
+      snum: '01 / 07',
+      title: 'Leaked Artefact Received',
+      node: 'leak',
+      what: 'Investigator receives an unauthorized document copy or leaked text artefact.',
+      why: 'The investigation starts with ZERO prior assumptions or recipient parameters; only the raw artefact is provided.',
+      proof: 'Raw character stream input; byte length and checksum recorded.',
+      specs: [['Input Type', 'Plaintext / Document Artefact'], ['Investigator Bias', 'NONE (No recipient selected)'], ['Max Payload', '500,000 characters']],
+      micro: `<div class="m mu">ARTEFACT INGESTION:<br>└── Length: 428 characters<br>└── Visible text: Operational brief...<br>└── Suspect recipient: <span class="wr">UNKNOWN / UNBIASED</span></div>`
+    },
+    {
+      id: 'wm_ex',
+      snum: '02 / 07',
+      title: 'Watermark Signal Extraction',
+      node: 'wm_ex',
+      what: 'Zero-width Unicode sequences are parsed, binary decoded, and validated against checksum parity.',
+      why: 'Recovers the opaque tracking watermark without needing access to any cryptographic keys or recipient records.',
+      proof: 'Recovered `WM-XXXXXXXXXXXXXXXX` matching regex `^WM-[0-9A-F]{16}$` and valid 4-character SHA-256 checksum.',
+      specs: [['Extraction', 'Regex pattern /\\u2060([\\u200b\\u200c]+)\\u2060/g'], ['Copies Recovered', '3 redundant copies checked'], ['Checksum Verification', 'VALID']],
+      micro: `<div class="m mu">SCANNING ARTEFACT...<br>├── Found 3 zero-width sequence copies<br>├── Bit unpacking: 01010111...<br>└── Watermark ID: <span style="color:var(--ac)">WM-8F29C01B4D7E5A23</span></div>`
+    },
+    {
+      id: 'led_srch',
+      snum: '03 / 07',
+      title: 'Verified Ledger Search',
+      node: 'led_srch',
+      what: 'Watermark searched across verified majority chain in independent validator databases.',
+      why: 'Bypasses the non-authoritative application DB; evidence is resolved strictly from immutable distributed blocks.',
+      proof: 'PROVENANCE transaction found inside committed Block #N with verified canonical majority view.',
+      specs: [['Query Target', 'Independent Validator DBs'], ['Authoritative Store', 'DLT Majority (Quorum >= 3)'], ['Transaction ID', 'TX-XXXXXXXX']],
+      micro: `<div class="m mu">SEARCHING CANONICAL DLT CHAIN...<br>├── Watermark WM-8F29C01B4D7E5A23 located<br>├── Block: #003<br>└── Transaction: TX-4A82F901</div>`
+    },
+    {
+      id: 'hist_key',
+      snum: '04 / 07',
+      title: 'Historical Key Resolution',
+      node: 'hist_key',
+      what: 'Retrieves the recipient’s public key as registered on the ledger at the time of session generation.',
+      why: 'Ensures attribution remains 100% valid even if the recipient subsequently rotates or revokes their key.',
+      proof: 'Key registration transaction and proof-of-possession signature validated from genesis/rotation history.',
+      specs: [['Key Identifier', 'KEY-0192-V1'], ['Current Key Status', 'ACTIVE (or ROTATED/REVOKED)'], ['Ledger Bound Identity', 'CID-0192']],
+      micro: `<div class="m mu">HISTORICAL KEY LOOKUP:<br>├── Identity: CID-0192 (Aarav Sharma)<br>├── Key: KEY-0192-V1 (ML-DSA-65)<br>└── State: Validated at block height #001</div>`
+    },
+    {
+      id: 'sig_ver',
+      snum: '05 / 07',
+      title: 'Cryptographic Sig Check',
+      node: 'sig_ver',
+      what: 'Recovers canonical record and verifies ML-DSA-65 recipient signature using resolved public key.',
+      why: 'Mathematically proves that the specific recipient private key signed this exact decryption record.',
+      proof: 'ECDSA-P256/SHA-256 signature verification returns boolean TRUE over canonical record serialization.',
+      specs: [['Algorithm', 'ML-DSA-65 (simulated)'], ['Verification Function', 'sigVerify(pub, canon(record), sig)'], ['Status', 'VALID']],
+      micro: `<div class="m mu">SIGNATURE AUDIT:<br>├── Canonical Payload: { docId: 'DOC-0001', recipientId: 'REC-0192'... }<br>├── Signature: MEQCID...<br>└── Verification Result: <span style="color:var(--ok)">MATHEMATICALLY VALID</span></div>`
+    },
+    {
+      id: 'blk_val',
+      snum: '06 / 07',
+      title: 'Block & Chain Continuity',
+      node: 'blk_val',
+      what: 'Verifies block SHA-256 hash, continuous previous-hash chain link, and validator approvals.',
+      why: 'Confirms that the transaction was permanently anchored by quorum and has not suffered history rewriting.',
+      proof: 'Block hash matches SHA-256 contents; previous-hash chain link unbroken; ≥ 3 valid Ed25519 node approvals.',
+      specs: [['Block Hash Check', 'SHA-256(canonical(block)) === block.hash'], ['Chain Continuity', 'prevHash === block[N-1].hash'], ['Approvals', '5/5 Valid Node Signatures']],
+      micro: `<div class="m mu">CHAIN AUDIT:<br>├── Previous Block Hash: 9f8a... Verified<br>├── Block Hash: 3c12... Verified<br>└── Validator Signatures: NODE-01..05 Verified</div>`
+    },
+    {
+      id: 'attrib',
+      snum: '07 / 07',
+      title: 'Attribution & Forensic Verdict',
+      node: 'attrib',
+      what: 'Multi-stage checks complete: attribution verdict rendered as VERIFIED_PROVENANCE_MATCH.',
+      why: 'Provides conclusive evidence identifying which recipient decryption session produced the leaked copy.',
+      proof: 'Immutable evidentiary statement generated with full cryptographic and consensus proof attachments.',
+      specs: [['Verdict', 'VERIFIED_PROVENANCE_MATCH'], ['Identified Recipient', 'Aarav Sharma (REC-0192)'], ['Session Bound', 'SES-8B1A2C3D']],
+      micro: `<div class="m mu"><span style="color:var(--ok);font-weight:700">VERDICT: VERIFIED PROVENANCE MATCH</span><br>Leaked artefact matches decryption event by Aarav Sharma (REC-0192). Signed record & ledger consensus verified.</div>`
+    }
+  ]
+};
 
 const VIEW = {
+  async how() {
+    const list = HIW_STEPS[HIW_MODE];
+    const s = list[HIW_STEP] || list[0];
+    const isDist = HIW_MODE === 'dist';
+    return `<h2>How It Works · System Model</h2><p class="sub">Interactive 2.5D architectural model demonstrating cryptographic flow from document creation to forensic attribution.</p>
+    <div class="hiw-container">
+      <div class="hiw-topbar">
+        <div class="hiw-modes">
+          <button class="hiw-mode-btn ${isDist ? 'active' : ''}" data-a="hiw-mode" data-v="dist">Distribution Pipeline</button>
+          <button class="hiw-mode-btn ${!isDist ? 'active' : ''}" data-a="hiw-mode" data-v="forensic">Forensic Investigation</button>
+        </div>
+        <div class="hiw-playback">
+          <button class="s" data-a="hiw-prev" ${HIW_STEP === 0 ? 'disabled' : ''}>◀ Prev</button>
+          <button class="p s" data-a="hiw-demo">${HIW_AUTOPLAY ? '⏸ Pause Demo' : '▶ Run Demonstration'}</button>
+          <button class="s" data-a="hiw-next" ${HIW_STEP === list.length - 1 ? 'disabled' : ''}>Next ▶</button>
+        </div>
+      </div>
+
+      <div class="hiw-stepper">
+        ${list.map((st, idx) => `
+          <button class="hiw-step-item ${idx === HIW_STEP ? 'active' : ''}" data-a="hiw-step" data-v="${idx}">
+            <span class="hiw-snum">${st.snum}</span>
+            <span class="hiw-stitle">${e(st.title)}</span>
+          </button>
+        `).join('')}
+      </div>
+
+      <div class="hiw-split">
+        <!-- 2.5D System Model Viewport -->
+        <div class="hiw-viewport">
+          <div class="hiw-grid-bg"></div>
+          <div class="hiw-scene-25d">
+            <svg class="hiw-svg-overlay">
+              <defs>
+                <linearGradient id="hiw-grad-line" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stop-color="var(--ac)" stop-opacity="0.8"/>
+                  <stop offset="100%" stop-color="var(--ok)" stop-opacity="0.8"/>
+                </linearGradient>
+              </defs>
+              ${isDist ? `
+                <line x1="16%" y1="28%" x2="48%" y2="28%" stroke="var(--bd-light)" stroke-width="2" stroke-dasharray="4,4"/>
+                <line x1="48%" y1="28%" x2="80%" y2="28%" stroke="var(--bd-light)" stroke-width="2" stroke-dasharray="4,4"/>
+                <line x1="80%" y1="28%" x2="80%" y2="72%" stroke="var(--bd-light)" stroke-width="2" stroke-dasharray="4,4"/>
+                <line x1="80%" y1="72%" x2="48%" y2="72%" stroke="var(--bd-light)" stroke-width="2" stroke-dasharray="4,4"/>
+                <line x1="48%" y1="72%" x2="18%" y2="72%" stroke="var(--bd-light)" stroke-width="2" stroke-dasharray="4,4"/>
+              ` : `
+                <line x1="16%" y1="28%" x2="48%" y2="28%" stroke="var(--bd-light)" stroke-width="2" stroke-dasharray="4,4"/>
+                <line x1="48%" y1="28%" x2="80%" y2="28%" stroke="var(--bd-light)" stroke-width="2" stroke-dasharray="4,4"/>
+                <line x1="80%" y1="28%" x2="80%" y2="72%" stroke="var(--bd-light)" stroke-width="2" stroke-dasharray="4,4"/>
+                <line x1="80%" y1="72%" x2="48%" y2="72%" stroke="var(--bd-light)" stroke-width="2" stroke-dasharray="4,4"/>
+                <line x1="48%" y1="72%" x2="18%" y2="72%" stroke="var(--bd-light)" stroke-width="2" stroke-dasharray="4,4"/>
+              `}
+            </svg>
+
+            ${isDist ? `
+              <!-- Step 1: Document -->
+              <div class="hiw-node ${HIW_STEP === 0 ? 'active-node' : HIW_STEP > 0 ? 'passed-node' : ''}" style="left:8%;top:20%" data-a="hiw-step" data-v="0">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">DOCUMENT</div></div>
+                <div class="hiw-node-sub">DOC-0001 · Plaintext</div>
+              </div>
+
+              <!-- Step 2: Encryption -->
+              <div class="hiw-node ${HIW_STEP === 1 ? 'active-node' : HIW_STEP > 1 ? 'passed-node' : ''}" style="left:40%;top:20%" data-a="hiw-step" data-v="1">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">AES-256-GCM</div></div>
+                <div class="hiw-node-sub">Bulk Cipher + AAD</div>
+              </div>
+
+              <!-- Step 3: Authorization -->
+              <div class="hiw-node ${HIW_STEP === 2 ? 'active-node' : HIW_STEP > 2 ? 'passed-node' : ''}" style="left:72%;top:20%" data-a="hiw-step" data-v="2">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">AUTHORIZATION</div></div>
+                <div class="hiw-node-sub">ML-KEM-768 Encap</div>
+              </div>
+
+              <!-- Step 4: Decryption -->
+              <div class="hiw-node ${HIW_STEP === 3 ? 'active-node' : HIW_STEP > 3 ? 'passed-node' : ''}" style="left:72%;top:64%" data-a="hiw-step" data-v="3">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">DECRYPTION</div></div>
+                <div class="hiw-node-sub">Session SES-8B1A</div>
+              </div>
+
+              <!-- Step 5: Watermark -->
+              <div class="hiw-node ${HIW_STEP === 4 ? 'active-node' : HIW_STEP > 4 ? 'passed-node' : ''}" style="left:40%;top:64%" data-a="hiw-step" data-v="4">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">WATERMARK</div></div>
+                <div class="hiw-node-sub">Zero-Width Marks</div>
+              </div>
+
+              <!-- Step 6: Provenance -->
+              <div class="hiw-node ${HIW_STEP === 5 ? 'active-node' : HIW_STEP > 5 ? 'passed-node' : ''}" style="left:10%;top:64%" data-a="hiw-step" data-v="5">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">PROVENANCE</div></div>
+                <div class="hiw-node-sub">ML-DSA-65 Signed</div>
+              </div>
+
+              <!-- Step 7: 5-Validator DLT Consensus Orbit (Shown when step >= 6) -->
+              <div class="hiw-val-cluster" style="left:calc(50% - 120px);top:calc(50% - 120px);opacity:${HIW_STEP === 6 ? '1' : '0.4'}">
+                <div class="hiw-val-node ${HIW_STEP === 6 ? 'approved' : ''}" style="top:-23px;left:97px">N01</div>
+                <div class="hiw-val-node ${HIW_STEP === 6 ? 'approved' : ''}" style="top:52px;right:-23px">N02</div>
+                <div class="hiw-val-node ${HIW_STEP === 6 ? 'approved' : ''}" style="bottom:12px;right:15px">N03</div>
+                <div class="hiw-val-node ${HIW_STEP === 6 ? 'approved' : ''}" style="bottom:12px;left:15px">N04</div>
+                <div class="hiw-val-node ${HIW_STEP === 6 ? 'approved' : ''}" style="top:52px;left:-23px">N05</div>
+              </div>
+              <div class="hiw-val-center" style="position:absolute;left:calc(50% - 75px);top:calc(50% - 24px);width:150px;opacity:${HIW_STEP === 6 ? '1' : '0.4'}">
+                <div style="font-weight:700;color:${HIW_STEP === 6 ? 'var(--ok)' : 'var(--tx)'}">DLT CONSENSUS</div>
+                <div style="font-size:10px;color:var(--mu)">${HIW_STEP === 6 ? 'QUORUM 5/5 OK' : 'STANDBY'}</div>
+              </div>
+            ` : `
+              <!-- Forensic Mode Nodes -->
+              <!-- Step 1: Leaked Artefact -->
+              <div class="hiw-node ${HIW_STEP === 0 ? 'active-node' : HIW_STEP > 0 ? 'passed-node' : ''}" style="left:8%;top:20%" data-a="hiw-step" data-v="0">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">ARTEFACT</div></div>
+                <div class="hiw-node-sub">Raw Leaked Text</div>
+              </div>
+
+              <!-- Step 2: Extraction -->
+              <div class="hiw-node ${HIW_STEP === 1 ? 'active-node' : HIW_STEP > 1 ? 'passed-node' : ''}" style="left:40%;top:20%" data-a="hiw-step" data-v="1">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">EXTRACTION</div></div>
+                <div class="hiw-node-sub">Zero-Width Decoder</div>
+              </div>
+
+              <!-- Step 3: Ledger Search -->
+              <div class="hiw-node ${HIW_STEP === 2 ? 'active-node' : HIW_STEP > 2 ? 'passed-node' : ''}" style="left:72%;top:20%" data-a="hiw-step" data-v="2">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">LEDGER QUERY</div></div>
+                <div class="hiw-node-sub">Canonical Blocks</div>
+              </div>
+
+              <!-- Step 4: Historical Key -->
+              <div class="hiw-node ${HIW_STEP === 3 ? 'active-node' : HIW_STEP > 3 ? 'passed-node' : ''}" style="left:72%;top:64%" data-a="hiw-step" data-v="3">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">HISTORICAL KEY</div></div>
+                <div class="hiw-node-sub">Key at Session Time</div>
+              </div>
+
+              <!-- Step 5: Signature Verification -->
+              <div class="hiw-node ${HIW_STEP === 4 ? 'active-node' : HIW_STEP > 4 ? 'passed-node' : ''}" style="left:40%;top:64%" data-a="hiw-step" data-v="4">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">SIG AUDIT</div></div>
+                <div class="hiw-node-sub">ML-DSA-65 Validated</div>
+              </div>
+
+              <!-- Step 6: Block Validation -->
+              <div class="hiw-node ${HIW_STEP === 5 ? 'active-node' : HIW_STEP > 5 ? 'passed-node' : ''}" style="left:10%;top:64%" data-a="hiw-step" data-v="5">
+                <div class="hiw-node-header"><div class="hiw-node-indicator"></div><div class="hiw-node-title">CHAIN AUDIT</div></div>
+                <div class="hiw-node-sub">Block Hash + Quorum</div>
+              </div>
+
+              <!-- Step 7: Attribution Result Center -->
+              <div class="hiw-node ${HIW_STEP === 6 ? 'active-node' : ''}" style="left:calc(50% - 90px);top:calc(50% - 30px);width:180px;text-align:center" data-a="hiw-step" data-v="6">
+                <div class="hiw-node-header" style="justify-content:center"><div class="hiw-node-indicator" style="background:${HIW_STEP === 6 ? 'var(--ok)' : 'var(--mu)'}"></div><div class="hiw-node-title">VERDICT</div></div>
+                <div class="hiw-node-sub" style="color:${HIW_STEP === 6 ? 'var(--ok)' : 'var(--mu)'}">${HIW_STEP === 6 ? 'PROVENANCE MATCH' : 'PENDING'}</div>
+              </div>
+            `}
+          </div>
+        </div>
+
+        <!-- Deep Dive Explainer Column -->
+        <div class="hiw-explainer-panel">
+          <div class="hiw-qa-block">
+            <div class="hiw-q-label what"><span>●</span> WHAT IS HAPPENING</div>
+            <div class="hiw-q-desc"><b>${e(s.what)}</b></div>
+          </div>
+
+          <div class="hiw-qa-block">
+            <div class="hiw-q-label why"><span>●</span> WHY IT MATTERS</div>
+            <div class="hiw-q-desc">${e(s.why)}</div>
+          </div>
+
+          <div class="hiw-qa-block">
+            <div class="hiw-q-label proof"><span>●</span> CRYPTOGRAPHIC &amp; LEDGER PROOF</div>
+            <div class="hiw-proof-box">${e(s.proof)}</div>
+          </div>
+
+          <div class="hiw-tech-specs">
+            <div class="l" style="margin-bottom:4px">Technical Architecture Specs</div>
+            ${s.specs.map(([k, v]) => `
+              <div class="hiw-spec-row">
+                <span class="hiw-spec-k">${e(k)}</span>
+                <span class="hiw-spec-v">${e(v)}</span>
+              </div>
+            `).join('')}
+          </div>
+
+          <div class="hiw-visual-micro">
+            <div class="l" style="margin-bottom:6px">Data Structure Representation</div>
+            ${s.micro}
+          </div>
+        </div>
+      </div>
+    </div>`;
+  },
   async dash() {
     const d = await api('/dashboard'), vs = d.validators;
     return `<h2>Command center</h2><p class="sub">Continuous cryptographic consensus and operational metrics across air-gapped nodes.</p>
@@ -151,7 +499,32 @@ document.addEventListener('click', async ev => {
   if (a === 'login') return go(async () => { const r = await api('/auth/login', 'POST', { username: $('u').value, password: $('p').value }); T = r.token; ME = r.user; sessionStorage.setItem('t', T); sessionStorage.setItem('me', JSON.stringify(ME)); V = 'dash'; OUT = null; });
   if (a === 'reset') return go(async () => { await api('/reset', 'POST', {}); toast('Demo environment reset'); });
   if (a === 'logout') { try { await api('/auth/logout', 'POST', {}); } catch {} return signout(); }
-  if (a === 'nav') { V = v; OUT = null; return draw(); }
+  if (a === 'nav') { V = v; OUT = null; if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; } return draw(); }
+  if (a === 'hiw-mode') { HIW_MODE = v; HIW_STEP = 0; if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; } return draw(); }
+  if (a === 'hiw-step') { HIW_STEP = parseInt(v, 10); if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; } return draw(); }
+  if (a === 'hiw-prev') { if (HIW_STEP > 0) HIW_STEP--; return draw(); }
+  if (a === 'hiw-next') { const max = HIW_STEPS[HIW_MODE].length - 1; if (HIW_STEP < max) HIW_STEP++; return draw(); }
+  if (a === 'hiw-demo') {
+    if (HIW_AUTOPLAY) {
+      clearInterval(HIW_AUTOPLAY);
+      HIW_AUTOPLAY = null;
+    } else {
+      HIW_STEP = 0;
+      draw();
+      HIW_AUTOPLAY = setInterval(() => {
+        const max = HIW_STEPS[HIW_MODE].length - 1;
+        if (HIW_STEP < max) {
+          HIW_STEP++;
+          draw();
+        } else {
+          clearInterval(HIW_AUTOPLAY);
+          HIW_AUTOPLAY = null;
+          draw();
+        }
+      }, 2200);
+    }
+    return draw();
+  }
   if (a === 'sel') { SEL = ev.target.checked ? [...SEL, v].slice(-2) : SEL.filter(x => x !== v); return draw(); }
   go(async () => {
     OUT = null;
