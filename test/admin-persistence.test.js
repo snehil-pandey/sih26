@@ -66,3 +66,50 @@ test('validator signing keys are sealed in the validator store', () => {
   const raw = fs.readFileSync(path.join(dir, 'validators/NODE-01.db')); assert.ok(!raw.includes('BEGIN PRIVATE KEY'));
   assert.ok(a.net.nodes[0].priv.length > 30); const meta = a.net.nodes[0].db.get("select v from meta where k='key'").v; assert.ok(!meta.includes(a.net.nodes[0].priv.toString('base64')));
 });
+
+test('admin user management: list, create with distinct roles, toggle status, and enforce access', () => {
+  const adminActor = u('USR-0003'), adminKek = kek('USR-0003');
+  const initialUsers = app.listUsers(adminActor);
+  assert.ok(initialUsers.length >= 7);
+
+  // Non-admin cannot list or create
+  assert.throws(() => app.listUsers(u('USR-0001')), /Role SENDER is not permitted/);
+  assert.throws(() => app.createUser(u('USR-0001'), kek('USR-0001'), { name: 'Test', username: 'testuser', role: 'RECIPIENT', password: 'password123' }), /Role SENDER is not permitted/);
+
+  // Admin creates recipient
+  const newRec = app.createUser(adminActor, adminKek, { name: 'Vikram Singh', username: 'vikram', role: 'RECIPIENT', password: 'securepassword123' });
+  assert.match(newRec.id, /^REC-\d{4}$/);
+  assert.equal(newRec.status, 'ACTIVE');
+
+  // New recipient can log in
+  const loginRec = app.login('vikram', 'securepassword123');
+  assert.equal(loginRec.user.id, newRec.id);
+  assert.equal(loginRec.user.role, 'RECIPIENT');
+
+  // Admin creates investigator
+  const newInv = app.createUser(adminActor, adminKek, { name: 'Dr. Priya Sharma', username: 'priya_inv', role: 'INVESTIGATOR', password: 'securepassword123' });
+  assert.match(newInv.id, /^USR-\d{4}$/);
+
+  // Check user listing contains new users
+  const updatedUsers = app.listUsers(adminActor);
+  assert.ok(updatedUsers.some(x => x.id === newRec.id && x.username === 'vikram'));
+  assert.ok(updatedUsers.some(x => x.id === newInv.id && x.username === 'priya_inv'));
+
+  // Admin toggles status to INACTIVE
+  const tog = app.toggleUserStatus(adminActor, newRec.id);
+  assert.equal(tog.status, 'INACTIVE');
+
+  // Deactivated user cannot authenticate with old session token or log in anew
+  assert.equal(app.authenticate(loginRec.token), null);
+  assert.throws(() => app.login('vikram', 'securepassword123'), /Invalid credentials/);
+
+  // Admin reactivates user
+  const tog2 = app.toggleUserStatus(adminActor, newRec.id);
+  assert.equal(tog2.status, 'ACTIVE');
+  const loginRec2 = app.login('vikram', 'securepassword123');
+  assert.ok(loginRec2.token);
+
+  // Admin cannot deactivate themselves
+  assert.throws(() => app.toggleUserStatus(adminActor, adminActor.id), /Cannot deactivate your own active administrator account/);
+});
+

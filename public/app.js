@@ -21,241 +21,472 @@ const NAV = {
   ADMIN: [['dash', 'Command center'], ['how', 'How it works'], ['docs', 'Documents'], ['sess', 'Sessions'], ['led', 'Provenance ledger'], ['val', 'Validators'], ['id', 'Identities & keys'], ['lab', 'Security lab'], ['aud', 'Audit']],
 };
 const syncTag = n => `<span class="tag ${n.sync === 'IN_SYNC' ? 'ok' : n.sync === 'BEHIND' || n.sync === 'OFFLINE' ? 'wr' : 'er'}">${e(n.sync.replace('_', ' '))}</span>`;
+const evBox = x => `<table>${kv('Signature (ML-DSA-65, simulated)', tag(x.signatureValid))}${kv('Transaction', tag(x.transactionValid))}${kv('Block + approvals', tag(x.blockValid, 'VALID', 'INVALID') + ` <span class="m mu">${x.approvals} valid approvals</span>`)}${kv('Chain', tag(x.chainValid))}${kv('Validator agreement', tag(x.validatorAgreement.agreed, 'AGREED', 'NO QUORUM') + ` <span class="m mu">${x.validatorAgreement.inSync}/${x.validatorAgreement.total} in sync${x.validatorAgreement.diverged.length ? ' · diverged: ' + e(x.validatorAgreement.diverged.join(', ')) : ''}</span>`)}${x.key ? kv('Key', `<span class="m">${e(x.key.keyId)} · ${e(x.key.status)}</span>`) : ''}</table>`;
 let TOUR_ACTIVE = false;
 let TOUR_STEP = 0;
 let TOUR_MODAL = null; // 'welcome' | 'done' | null
+let TOUR_AUTOPLAY = null;
+
+function stopTourAutoplay() {
+  if (TOUR_AUTOPLAY) {
+    clearTimeout(TOUR_AUTOPLAY);
+    TOUR_AUTOPLAY = null;
+  }
+}
+
+function getTourStepDuration(step) {
+  if (!step) return 4000;
+  const text = (step.title || '') + ' ' + (step.desc || '') + ' ' + (step.why || '');
+  const words = text.trim().split(/\s+/).filter(Boolean).length;
+  // Dynamic reading pace: ~180-200 WPM + 1.5s thinking cushion, clamped between 3.5s and 8.5s
+  const ms = Math.round(words * 260) + 1500;
+  return Math.max(3500, Math.min(8500, ms));
+}
 
 const TOUR_STEPS_BY_ROLE = {
   SENDER: [
+    // --- WORKSPACE ORIENTATION ---
+    {
+      target: "aside",
+      fallback: "main",
+      view: "dash",
+      title: "Sender Enclave Orientation",
+      desc: "Welcome Commander. This console governs the lifecycle of classified defense documents: local AES-256-GCM encryption, post-quantum recipient key encapsulation, immutable multi-node ledger anchoring, and forensic watermark tracing.",
+      why: "Ensures no document leaves local custody or is decrypted without an unbroken cryptographic chain of custody anchored across independent validator nodes."
+    },
+    {
+      target: ".top",
+      fallback: "main",
+      view: "dash",
+      title: "Security Context & Session Status",
+      desc: "Displays active post-quantum cryptography simulations (ML-KEM-768 and ML-DSA-65), UTC temporal synchronization, your authenticated sender identity, and tour controls.",
+      why: "All document sealing actions, key capsules, and transaction timestamps are cryptographically bound to your authenticated identity and UTC monotonic block headers."
+    },
+
+    // --- COMMAND CENTER (DASH) ---
     {
       target: "main .c:first-of-type",
-      fallback: "aside",
+      fallback: "main",
       view: "dash",
-      title: "Sender Command Center",
-      desc: "Welcome Commander. This dashboard tracks real-time DLT consensus health across all 5 validator nodes and summarizes your document lifecycle metrics.",
-      why: "Ensures you only authorize document distributions when independent validator nodes are synchronized and healthy."
+      title: "Consensus Integrity & Node Synchronization",
+      desc: "Continuously tracks independent validator node state. It verifies that at least 3 of 5 validator nodes agree on the canonical ledger head hash and warns immediately if any node diverges.",
+      why: "You should only seal and distribute classified operational briefs when the distributed ledger consensus is verified and healthy across the validator network."
     },
     {
-      target: "button[data-v='docs']",
-      fallback: "aside",
+      target: "main .g",
+      fallback: "main",
       view: "dash",
-      title: "Documents Workspace",
-      desc: "Access the document hub to upload, encrypt, and authorize defense operational briefs for specific recipients.",
-      why: "Documents are encrypted at rest with AES-256-GCM before ever leaving local custody."
+      title: "Operational Metrics & Throughput",
+      desc: "Provides a real-time summary of active documents under custody, authorized recipients, cumulative decryption sessions, ledger blocks, and forensic investigations.",
+      why: "Gives immediate operational visibility into document circulation and system-wide cryptographic events."
     },
+
+    // --- HOW IT WORKS (HOW) ---
+    {
+      target: "main .hiw-container",
+      fallback: "main",
+      view: "how",
+      title: "Architectural Model & Cryptographic Flow",
+      desc: "Interactive 2.5D visual model demonstrating the complete lifecycle of a document: local sealing, recipient key encapsulation, validator consensus, authorized decryption, zero-width watermarking, and forensic tracing.",
+      why: "Provides deep architectural transparency into how data structures, key capsules, and canonical blocks interact under the hood."
+    },
+
+    // --- DOCUMENTS WORKSPACE (DOCS) ---
     {
       target: "#new-doc-card",
-      fallback: "main .c",
+      fallback: "main",
       view: "docs",
-      title: "Create & Distribute Document",
-      desc: "Enter document name, security classification (RESTRICTED, CONFIDENTIAL, SECRET), and plaintext content into this sealing enclave.",
-      why: "Generates a single-use 256-bit Content Encryption Key (CEK) bound to document version and cryptographic SHA-256 hash."
+      title: "Document Creation & Sealing Workflow",
+      desc: "The secure authoring enclave where you input the brief's title, assign its formal security classification (RESTRICTED, CONFIDENTIAL, or SECRET), and provide the sensitive plaintext content.",
+      why: "The system generates a single-use 256-bit Content Encryption Key (CEK) and encrypts the document locally with AES-256-GCM before it ever touches external storage."
     },
     {
       target: "#recipients-group",
       fallback: "#new-doc-card",
       view: "docs",
-      title: "Authorized Recipient Selection",
-      desc: "Check off authorized personnel permitted to decrypt this document.",
-      why: "Creates SENDER-signed AUTHORIZATION transactions on the distributed ledger and establishes ML-KEM-768 key capsules."
+      title: "Recipients & Access Authorization",
+      desc: "Defines exactly which verified personnel are permitted to decrypt the document. Checking a recipient establishes an ML-KEM-768 post-quantum key capsule for their identity.",
+      why: "When you click 'Encrypt, authorize & anchor', your device signs an AUTHORIZATION transaction committing the recipient's public key ID to the distributed ledger. Unselected personnel cannot decrypt the file even if they obtain the ciphertext."
     },
     {
-      target: "button[data-v='sess']",
-      fallback: "aside",
-      view: "docs",
-      title: "Decryption Sessions & Watermarks",
-      desc: "Inspect live recipient access sessions. Each time an authorized recipient decrypts, an individual session and watermark is generated.",
-      why: "Allows you to compare sessions side-by-side to verify unique invisible watermarking."
-    },
-    {
-      target: "button[data-v='led']",
-      fallback: "aside",
-      view: "docs",
-      title: "Distributed Provenance Ledger",
-      desc: "Review immutable blocks, key registrations, authorizations, and recipient decryption transactions.",
-      why: "Maintained independently by 5 air-gapped validator SQLite nodes to prevent unilateral history alteration."
-    },
-    {
-      target: "button[data-v='val']",
-      fallback: "aside",
-      view: "docs",
-      title: "Validator Consensus Status",
-      desc: "Inspect live node states, synchronization health, and quorum agreements across the 5 validator nodes.",
-      why: "Blocks only commit when a verified majority (at least 3 of 5 nodes) sign Ed25519 approvals."
-    },
-    {
-      target: ".top",
+      target: "main .g2",
       fallback: "main",
-      view: "dash",
-      title: "Sender Console Controls",
-      desc: "Displays active cryptographic mode, military UTC time ticker, current operator identity, role permissions, and tour replay controls.",
-      why: "Ensures complete session accountability and audit logging."
+      view: "docs",
+      title: "Document Custody & Access Roster",
+      desc: "Displays all active encrypted briefs, their cryptographic content hashes (SHA-256), current version numbers, cumulative decryption counters, and authorized recipient rosters.",
+      why: "Allows senders to audit document distribution at a glance and verify that content hashes match authorized releases."
+    },
+
+    // --- SESSIONS & WATERMARKS (SESS) ---
+    {
+      target: "main .c.wrapx",
+      fallback: "main",
+      view: "sess",
+      title: "Decryption Sessions & Watermark Tracking",
+      desc: "Audits every plaintext decryption event across the network. Each decryption records a unique session ID, recipient identity, invisible zero-width watermark ID, and anchored ledger block.",
+      why: "Enables side-by-side comparison of two sessions to demonstrate how identical briefs carry unique, recipient-specific watermarks, and allows simulating unauthorized leaks for testing."
+    },
+
+    // --- PROVENANCE LEDGER (LED) ---
+    {
+      target: "main .c.wrapx:has(table)",
+      fallback: "main",
+      view: "led",
+      title: "Public-Key Registry on Ledger",
+      desc: "Maintains canonical public key records for all operators (including ML-DSA-65 signing keys and ML-KEM-768 encapsulation keys), tracking versioning and active/revoked statuses.",
+      why: "Public keys are verified strictly from consensus blocks, preventing key substitution attacks and ensuring historical keys remain verifiable."
+    },
+    {
+      target: "main .c:has(b)",
+      fallback: "main",
+      view: "led",
+      title: "Immutable Blocks & Transaction Payloads",
+      desc: "The append-only canonical ledger chain showing block indices, timestamps, validator approvals, hash continuity, and signed transaction payloads (KEY_REGISTRATION, AUTHORIZATION, PROVENANCE).",
+      why: "Transactions are permanently sealed across independent node databases. Changing any past record breaks cryptographic hash links and is rejected by validators."
+    },
+
+    // --- VALIDATORS NETWORK (VAL) ---
+    {
+      target: "main .c.wrapx",
+      fallback: "main",
+      view: "val",
+      title: "Validator Network & Byzantine Fault Tolerance",
+      desc: "Inspects live node states, ledger heights, latest block hashes, and consensus agreements across the 5 independent validator SQLite nodes.",
+      why: "Transactions and blocks require agreement from at least 3 of 5 independent nodes (quorum), guaranteeing resilient consensus without single points of failure."
+    },
+
+    // --- SYSTEM AUDIT (AUD) ---
+    {
+      target: "main .g2",
+      fallback: "main",
+      view: "aud",
+      title: "Dual-Layer System Audit",
+      desc: "Presents authoritative ledger events (extracted from immutable blockchain blocks) alongside non-authoritative operational logs (HTTP requests and operator telemetry).",
+      why: "Maintains an unalterable, tamper-evident audit trail of all authorizations, decryptions, and administrative interventions."
     }
   ],
+
   RECIPIENT: [
+    // --- WORKSPACE ORIENTATION ---
     {
-      target: "main .c:first-of-type",
-      fallback: "aside",
+      target: "aside",
+      fallback: "main",
       view: "dash",
-      title: "Recipient Command Center",
-      desc: "Welcome. This workspace confirms that the defense ledger is in consensus and displays your authorized document count and decryption activity.",
-      why: "Guarantees that your access attempts are evaluated against verified, quorum-backed ledger states."
-    },
-    {
-      target: "button[data-v='docs']",
-      fallback: "aside",
-      view: "dash",
-      title: "My Secure Documents",
-      desc: "View confidential documents that have been specifically authorized for your identity by senders.",
-      why: "Only documents where a valid AUTHORIZATION transaction exists on the ledger can be decrypted by your account."
-    },
-    {
-      target: "main .g2 .c:first-of-type",
-      fallback: "main .c",
-      view: "docs",
-      title: "Document Decryption & Evidence",
-      desc: "Click 'Decrypt' on an authorized document. The enclave unwraps the key capsule, renders the operational brief, and injects a traceable watermark.",
-      why: "Your device automatically signs a PROVENANCE transaction with ML-DSA-65 committing your decryption to the ledger."
-    },
-    {
-      target: "button[data-v='sess']",
-      fallback: "aside",
-      view: "docs",
-      title: "My Decryption Sessions",
-      desc: "Review all decryption sessions performed by your account, including unique watermark identifiers and ledger block anchors.",
-      why: "Provides personal auditability so you know exactly what provenance records exist under your cryptographic identity."
-    },
-    {
-      target: "button[data-v='id']",
-      fallback: "aside",
-      view: "docs",
-      title: "Cryptographic Identity & Key Rotation",
-      desc: "Inspect your public key registration (ML-DSA-65 / ML-KEM-768) and rotate your active key pair when required by security policy.",
-      why: "Rotated keys remain linked on the ledger, ensuring historical decryptions continue to verify mathematically without breaking attribution."
+      title: "Recipient Terminal Orientation",
+      desc: "Welcome to your secure recipient terminal. This workspace allows authorized defense personnel to receive, decrypt, and review classified operational briefs designated for your identity.",
+      why: "Every document decryption is cryptographically governed: your device unwraps a post-quantum key capsule, embeds an invisible provenance watermark, and signs a ledger record."
     },
     {
       target: ".top",
       fallback: "main",
       view: "dash",
-      title: "Recipient Terminal Status",
-      desc: "Displays active encryption mode, live UTC clock, authenticated operator credentials, and the replay tour button.",
-      why: "Ensures you are operating inside an authenticated, traceable defense enclave session."
-    }
-  ],
-  INVESTIGATOR: [
+      title: "Security Context & Cryptographic Identity",
+      desc: "Displays your authenticated recipient identity, active post-quantum cryptography simulations (ML-KEM-768/ML-DSA-65), UTC timestamp synchronization, and tour replay controls.",
+      why: "Only documents with a verified AUTHORIZATION transaction matching your registered public key on the ledger can be unlocked by this terminal."
+    },
+
+    // --- COMMAND CENTER (DASH) ---
     {
       target: "main .c:first-of-type",
-      fallback: "aside",
+      fallback: "main",
       view: "dash",
-      title: "Investigator Command Center",
-      desc: "Welcome Investigator. This dashboard displays system-wide forensic investigation counts, verified attributions, and validator consensus health.",
-      why: "Forensic attribution relies on querying uncorrupted, majority-verified ledger blocks across all 5 validator nodes."
+      title: "Consensus Status & Network Health",
+      desc: "Confirms that the distributed validator ledger is in active consensus and synchronized across all nodes before you attempt any document access.",
+      why: "Decryption requires an active validator quorum to validate and anchor your signed PROVENANCE transaction to the canonical blockchain."
     },
     {
-      target: "button[data-v='inv']",
-      fallback: "aside",
+      target: "main .g",
+      fallback: "main",
+      view: "dash",
+      title: "Personal Operational Summary",
+      desc: "Summarizes active briefs authorized for your account, total successful decryptions, and personal activity across the defense network.",
+      why: "Provides immediate situational awareness of classified materials accessible under your security clearance."
+    },
+
+    // --- HOW IT WORKS (HOW) ---
+    {
+      target: "main .hiw-container",
+      fallback: "main",
+      view: "how",
+      title: "Recipient Decryption & Provenance Model",
+      desc: "Interactive 2.5D architectural demonstration showing how your private key decapsulates the session key, renders plaintext, and injects zero-width steganographic watermarks.",
+      why: "Explains how the system ensures document confidentiality while preserving undeniable attribution."
+    },
+
+    // --- MY SECURE DOCUMENTS (DOCS) ---
+    {
+      target: "main .g2",
+      fallback: "main",
+      view: "docs",
+      title: "Authorized Classified Documents",
+      desc: "The secure documents repository showing briefs authorized specifically for your identity. Each card displays security classification, content hash, version, and cumulative access count.",
+      why: "Clicking 'Decrypt' initiates key decapsulation, displays the plaintext operational brief, embeds your unique watermark, and signs an immutable PROVENANCE transaction with ML-DSA-65."
+    },
+    {
+      target: "main .c:last-child",
+      fallback: "main",
+      view: "docs",
+      title: "Cryptographic Authorization Enforcement",
+      desc: "Allows testing direct document access by ID. It demonstrates that access control is enforced cryptographically by the backend—unauthorized requests are denied and leave no state.",
+      why: "Confirms that unauthorized users cannot bypass authorization rules even if they know the document identifier."
+    },
+
+    // --- SESSIONS & WATERMARKS (SESS) ---
+    {
+      target: "main .c.wrapx",
+      fallback: "main",
+      view: "sess",
+      title: "Personal Decryption Sessions & Provenance Records",
+      desc: "A personal audit trail of every decryption executed from your terminal, including unique session IDs, document IDs, zero-width watermark IDs, and anchored block numbers.",
+      why: "Gives recipients complete personal auditability over all signed provenance transactions committed under their identity, with side-by-side comparison capabilities."
+    },
+
+    // --- CRYPTOGRAPHIC IDENTITY (ID) ---
+    {
+      target: "main .c.wrapx",
+      fallback: "main",
+      view: "id",
+      title: "Cryptographic Identity & Key Rotation",
+      desc: "Displays your registered public key on the ledger, key version, active status, and provides the 'Rotate my key' action to generate a new key pair.",
+      why: "Rotated keys remain linked on the ledger, ensuring historical decryptions continue to verify mathematically without breaking attribution."
+    }
+  ],
+
+  INVESTIGATOR: [
+    // --- WORKSPACE ORIENTATION ---
+    {
+      target: "aside",
+      fallback: "main",
       view: "dash",
       title: "Forensic Investigation Enclave",
-      desc: "Your primary workspace for analyzing leaked documents and reconstructing mathematical chains of custody.",
-      why: "Operates with zero bias: you supply only the leaked text artifact without selecting suspects or guessing recipients."
+      desc: "Welcome Investigator. This enclave provides unbiased, mathematical attribution of leaked defense documents using zero-width steganography, canonical ledger queries, and post-quantum signature verification.",
+      why: "Operates with zero human bias: the investigator supplies only the leaked text artifact without selecting suspects or guessing recipients."
     },
+    {
+      target: ".top",
+      fallback: "main",
+      view: "dash",
+      title: "Forensic Environment & Verification Engine",
+      desc: "Displays active cryptographic verification engines (ML-DSA-65 signature checks, SHA-256 chaining, DLT consensus verification), UTC timestamps, and tour replay controls.",
+      why: "All investigative conclusions and attribution verdicts are timestamped and corroborated against canonical validator blocks."
+    },
+
+    // --- COMMAND CENTER (DASH) ---
+    {
+      target: "main .c:first-of-type",
+      fallback: "main",
+      view: "dash",
+      title: "Consensus Integrity & Evidentiary Health",
+      desc: "Verifies that all 5 validator nodes agree on the canonical ledger state and that no storage divergence has occurred.",
+      why: "Forensic attribution is only legally and mathematically sound when anchored by an active validator quorum (at least 3 of 5 nodes)."
+    },
+    {
+      target: "main .g",
+      fallback: "main",
+      view: "dash",
+      title: "Forensic Case Metrics",
+      desc: "Summarizes active investigations, verified attributions, total blocks, and system-wide document circulation metrics.",
+      why: "Provides instant situational awareness over pending and resolved leak investigations."
+    },
+
+    // --- HOW IT WORKS (HOW) ---
+    {
+      target: "main .hiw-container",
+      fallback: "main",
+      view: "how",
+      title: "7-Stage Forensic Attribution Model",
+      desc: "Visual walkthrough of the complete forensic pipeline: Artefact Ingestion → Watermark Recovery → Ledger Query → Historical Key Resolution → Signature Audit → Chain Validation → Final Attribution Verdict.",
+      why: "Demonstrates the mathematical rigor behind every stage of evidence analysis."
+    },
+
+    // --- INVESTIGATIONS ENCLAVE (INV) ---
     {
       target: "main .c:first-of-type",
       fallback: "main",
       view: "inv",
-      title: "Leaked Artifact Ingestion",
-      desc: "Ingest simulated leaked text snippets or upload external .txt files recovered from unauthorized channels.",
-      why: "The forensic engine scans raw text for zero-width Unicode characters and recovers the embedded watermark ID."
+      title: "Leaked Artefact Ingestion & Analysis",
+      desc: "The primary investigation portal. You can select simulated leaked snippets from known sessions or upload external plaintext (.txt) files recovered from unauthorized channels.",
+      why: "The forensic engine scans raw character streams for zero-width Unicode characters, validates checksum parity, and extracts the embedded watermark ID."
     },
     {
-      target: "button[data-v='led']",
-      fallback: "aside",
+      target: "main .c.wrapx:last-of-type",
+      fallback: "main",
       view: "inv",
-      title: "Provenance Ledger Verification",
-      desc: "Inspect verified majority blocks, public key histories, and signed PROVENANCE records anchored across the validator network.",
-      why: "Allows independent signature verification (sigVerify) and tampering checks directly on committed transactions."
+      title: "Investigation History & Evidentiary Archive",
+      desc: "Maintains an immutable record of all completed forensic investigations, including recovered watermark IDs, attribution statuses (VERIFIED_PROVENANCE_MATCH or NO_ATTRIBUTION), and timestamps.",
+      why: "Provides an undeniable, reproducible record of all investigative findings for formal defense inquiries."
+    },
+
+    // --- PROVENANCE LEDGER (LED) ---
+    {
+      target: "main .c.wrapx:has(table)",
+      fallback: "main",
+      view: "led",
+      title: "Ledger Key Registry & Signature Verification",
+      desc: "Inspects canonical public keys and provides tools to independently verify ML-DSA-65 recipient signatures directly on committed PROVENANCE transactions.",
+      why: "Allows investigators to test signatures against correct and adversarial recipient keys, proving that attribution fails closed if a signature does not match."
     },
     {
-      target: "button[data-v='val']",
-      fallback: "aside",
-      view: "inv",
-      title: "Validator Network & Quorum",
-      desc: "Verify validator synchronization states and ensure no node divergence or history rewriting has occurred.",
-      why: "Evidence is only legally sound when anchored by quorum (at least 3 of 5 independent nodes)."
+      target: "main .c:has(b)",
+      fallback: "main",
+      view: "led",
+      title: "Block Continuity & Validator Approvals",
+      desc: "Reviews block continuity, previous-hash chaining, and Ed25519 validator node signatures anchored across the network.",
+      why: "Guarantees that evidence records have not been rewritten, truncated, or tampered with since creation."
     },
+
+    // --- SECURITY TEST LAB (LAB) ---
     {
-      target: "button[data-v='lab']",
-      fallback: "aside",
-      view: "inv",
-      title: "Security Test Lab",
-      desc: "Execute automated adversarial scenarios: altered watermarks, forged signatures, deleted blocks, and corrupted transactions.",
+      target: "main .c",
+      fallback: "main",
+      view: "lab",
+      title: "Automated Adversarial Security Suite",
+      desc: "Executes automated tests in isolated sandboxes: altered watermarks, forged signatures, deleted blocks, and corrupted transactions.",
       why: "Proves in real time that tampered evidence is rejected and cannot produce false positive attributions."
     },
+
+    // --- SYSTEM AUDIT (AUD) ---
     {
-      target: "button[data-v='aud']",
-      fallback: "aside",
-      view: "inv",
-      title: "Authoritative System Audit",
-      desc: "Compare authoritative immutable ledger events against non-authoritative operational logs.",
-      why: "Provides an undeniable audit trail of all operational events and investigative actions."
+      target: "main .g2",
+      fallback: "main",
+      view: "aud",
+      title: "Authoritative Ledger Audit Timeline",
+      desc: "Corroborates authoritative ledger events from canonical blocks against operational logs.",
+      why: "Ensures comprehensive auditability and evidentiary integrity across all investigative operations."
     }
   ],
+
   ADMIN: [
+    // --- WORKSPACE ORIENTATION ---
+    {
+      target: "aside",
+      fallback: "main",
+      view: "dash",
+      title: "Administrator Super-Console",
+      desc: "Welcome System Administrator. You hold full oversight over the 5-node distributed ledger, Byzantine fault detection, attack simulations, key management, and security suites.",
+      why: "Ensures the distributed ledger and security enclave maintain continuous consensus integrity and fault tolerance."
+    },
+    {
+      target: ".top",
+      fallback: "main",
+      view: "dash",
+      title: "Administrative Security Controls",
+      desc: "Displays active post-quantum cryptography simulations, military UTC time ticker, administrator credentials, and guided tour controls.",
+      why: "Validates that administrative interventions are authenticated and timestamped across the network."
+    },
+
+    // --- COMMAND CENTER (DASH) ---
     {
       target: "main .c:first-of-type",
-      fallback: "aside",
+      fallback: "main",
       view: "dash",
-      title: "Administrator Command Center",
-      desc: "Welcome System Administrator. Full multi-node control and end-to-end consensus monitoring across all enclave modules.",
-      why: "Monitors ledger head consistency, validator quorum status, and system-wide operational metrics."
+      title: "Multi-Node Consensus Overview",
+      desc: "Real-time consensus health across all 5 validator SQLite databases. Displays the synchronized node tally, quorum threshold (3/5), and canonical ledger head hash.",
+      why: "Immediately alerts administrators to node synchronization failures or database divergence across the cluster."
     },
     {
-      target: "button[data-v='docs']",
-      fallback: "aside",
+      target: "main .g",
+      fallback: "main",
       view: "dash",
-      title: "Document Custody & Access",
-      desc: "Review all encrypted operational briefs, encryption algorithms, content hashes, and authorized recipient rosters.",
-      why: "Provides full administrative oversight of classified assets within the enclave."
+      title: "System-Wide Operational Metrics",
+      desc: "High-level metrics grid summarizing active documents, registered recipients, decryption sessions, provenance records, ledger blocks, and investigations.",
+      why: "Provides comprehensive visibility into network activity and storage utilization."
+    },
+
+    // --- HOW IT WORKS (HOW) ---
+    {
+      target: "main .hiw-container",
+      fallback: "main",
+      view: "how",
+      title: "System Architecture & Consensus Model",
+      desc: "Interactive 2.5D architectural demonstration showing document sealing, capsule creation, 5-node validator voting, and forensic attribution.",
+      why: "Serves as an architectural reference for training operators and verifying cryptographic flow."
+    },
+
+    // --- DOCUMENTS (DOCS) ---
+    {
+      target: "main .g2",
+      fallback: "main",
+      view: "docs",
+      title: "Document Custody & Access Rosters",
+      desc: "Full administrative oversight of all encrypted operational briefs, encryption algorithms (AES-256-GCM), content hashes, and authorized recipient lists.",
+      why: "Allows administrators to monitor classified assets under custody without exposing plaintext content."
+    },
+
+    // --- SESSIONS & WATERMARKS (SESS) ---
+    {
+      target: "main .c.wrapx",
+      fallback: "main",
+      view: "sess",
+      title: "Decryption Sessions & Watermark Log",
+      desc: "Comprehensive log of all recipient decryption sessions with unique watermark IDs, block numbers, and side-by-side comparison features.",
+      why: "Enables monitoring of access patterns and verification of unique invisible watermarks across sessions."
+    },
+
+    // --- PROVENANCE LEDGER (LED) ---
+    {
+      target: "main .c.wrapx:has(table)",
+      fallback: "main",
+      view: "led",
+      title: "Canonical Ledger & Public-Key Registry",
+      desc: "Inspects registered public keys, cryptographic algorithms, version histories, and allows on-demand validation across all validator nodes.",
+      why: "Confirms chain continuity and validates that all registered keys adhere to security policy."
     },
     {
-      target: "button[data-v='led']",
-      fallback: "aside",
-      view: "dash",
-      title: "Distributed Provenance Ledger",
-      desc: "Inspect raw block continuity, transaction payloads, and execute signature validation across all recorded events.",
-      why: "Confirms chain integrity and provides cryptographic proof of all document actions."
+      target: "main .c:has(b)",
+      fallback: "main",
+      view: "led",
+      title: "Block Continuity & Transaction Payloads",
+      desc: "Reviews immutable block headers, previous-hash linkage, validator approval signatures, and transaction payloads.",
+      why: "Demonstrates that history cannot be rewritten or modified without breaking cryptographic hash chains."
     },
+
+    // --- VALIDATOR MANAGEMENT & ATTACK SIMULATION (VAL) ---
     {
-      target: "button[data-v='val']",
-      fallback: "aside",
-      view: "dash",
-      title: "Validator Management & Attack Simulation",
-      desc: "Take nodes offline, force chain resynchronization, or execute attack simulations (e.g. modified transaction or deleted block).",
-      why: "Allows testing and demonstration of the system's Byzantine fault detection and consensus self-healing."
-    },
-    {
-      target: "button[data-v='id']",
-      fallback: "aside",
+      target: "main .c.wrapx",
+      fallback: "main",
       view: "val",
-      title: "Identities & Cryptographic Key Revocation",
-      desc: "Manage operator identities and revoke compromised public keys across the network.",
-      why: "Revoking a key prevents further authorizations while preserving historical attribution for existing signed records."
+      title: "Validator Node Management & Quorum Controls",
+      desc: "Granular status of each validator node (ONLINE/OFFLINE, height, latest block hash, validation state, and sync state) with controls to toggle nodes offline or force chain resynchronization.",
+      why: "Demonstrates fault tolerance: the network continues committing transactions as long as at least 3 of 5 nodes are online and synchronized."
     },
     {
-      target: "button[data-v='lab']",
-      fallback: "aside",
+      target: "main .c:last-child",
+      fallback: "main",
       view: "val",
-      title: "Security Test Lab",
-      desc: "Run comprehensive cryptographic suite checks against throw-away sandboxes to verify defense resistance.",
-      why: "Verifies zero-width detection, signature verification, and consensus validation before field deployment."
+      title: "Adversarial Attack Simulation",
+      desc: "Interactive security testing console that injects corruptions into ONE validator's private storage (e.g. modified transaction, modified block hash, or deleted block).",
+      why: "Proves that the consensus engine detects divergence immediately and isolates the compromised node while majority consensus holds firm."
     },
+
+    // --- IDENTITIES & KEYS (ID) ---
     {
-      target: "button[data-v='aud']",
-      fallback: "aside",
-      view: "val",
-      title: "Immutable System Audit",
-      desc: "Review the authoritative ledger timeline alongside operational logs for complete accountability.",
-      why: "Provides unalterable evidence of all administrative interventions and operator interactions."
+      target: "main .c.wrapx",
+      fallback: "main",
+      view: "id",
+      title: "Identity Management & Key Revocation",
+      desc: "Centralized identity registry allowing administrators to revoke compromised public keys by committing a KEY_REVOCATION transaction to the ledger.",
+      why: "Revoking a key prevents future authorizations while preserving historical attribution for existing signed records."
+    },
+
+    // --- SECURITY TEST LAB (LAB) ---
+    {
+      target: "main .c",
+      fallback: "main",
+      view: "lab",
+      title: "Security Test Lab Suite",
+      desc: "Executes automated adversarial test scenarios against in-memory throwaway sandboxes to verify defense resistance before live operations.",
+      why: "Verifies zero-width detection, signature verification, and consensus self-healing without altering production ledger state."
+    },
+
+    // --- SYSTEM AUDIT (AUD) ---
+    {
+      target: "main .g2",
+      fallback: "main",
+      view: "aud",
+      title: "Authoritative & Operational Audit",
+      desc: "Dual audit interface comparing immutable ledger blocks against operational telemetry.",
+      why: "Provides unalterable proof of all administrative actions, key revocations, and node resynchronizations."
     }
   ]
 };
@@ -264,6 +495,10 @@ function getTourSteps() {
   const role = (ME && ME.role) || 'SENDER';
   return TOUR_STEPS_BY_ROLE[role] || TOUR_STEPS_BY_ROLE.SENDER;
 }
+
+let HIW_MODE = 'dist'; // 'dist' | 'forensic'
+let HIW_STEP = 0;
+let HIW_AUTOPLAY = null;
 
 const HIW_STEPS = {
   dist: [
@@ -617,6 +852,57 @@ const VIEW = {
     return `<h2>Command center</h2><p class="sub">Continuous cryptographic consensus and operational metrics across air-gapped nodes.</p>
     <div class="c" style="border-left:4px solid ${vs.agreed && !vs.diverged.length ? 'var(--ok)' : 'var(--er)'};margin-bottom:18px"><div class="l">Distributed Ledger Integrity · Consensus Status</div><div class="n ${vs.agreed && !vs.diverged.length ? 'ok' : 'er'}" style="font-size:24px;margin-bottom:6px">${vs.agreed ? (vs.diverged.length ? 'QUORUM OK · DIVERGENCE DETECTED' : 'CONSENSUS VERIFIED · ALL VALIDATORS AGREE') : 'ALERT: NO VALIDATOR QUORUM'}</div>
     <p class="m" style="margin:4px 0">${vs.inSync}/${vs.total} validators in sync (quorum ${vs.quorum})${vs.diverged.length ? ' · <span class="er">diverged: ' + e(vs.diverged.join(', ')) + '</span>' : ''} · head <span style="color:var(--ac)">${sh(d.ledgerHead)}</span></p><p class="mu" style="margin:4px 0 0;font-size:11px">Local permissioned DLT consensus verified on-demand against independent node state.</p></div>
+
+    <div class="lifecycle-pipeline-card">
+      <div class="lifecycle-header">
+        <div>
+          <div class="l" style="margin:0;color:var(--ac)">Cryptographic Provenance Lifecycle</div>
+          <p class="mu" style="margin:2px 0 0;font-size:11.5px">Real-time state transitions computed directly from authoritative consensus ledger</p>
+        </div>
+        <span class="tag ok">CONTINUOUS ATTESTATION</span>
+      </div>
+      <div class="lifecycle-pipeline-grid">
+        <div class="pipeline-stage">
+          <div class="pipeline-stage-idx">STAGE 01 · AES-256-GCM</div>
+          <div class="pipeline-stage-name">
+            <span>Documents Sealed</span>
+            <span class="pipeline-stage-count">${d.documents}</span>
+          </div>
+          <div class="pipeline-stage-desc">Classified briefs encrypted with single-use CEKs and bound to AAD.</div>
+          <div class="pipeline-connector">▶</div>
+        </div>
+
+        <div class="pipeline-stage">
+          <div class="pipeline-stage-idx">STAGE 02 · ML-KEM-768</div>
+          <div class="pipeline-stage-name">
+            <span>Recipient Identities</span>
+            <span class="pipeline-stage-count">${d.recipients}</span>
+          </div>
+          <div class="pipeline-stage-desc">Personnel with registered post-quantum key capsules on ledger.</div>
+          <div class="pipeline-connector">▶</div>
+        </div>
+
+        <div class="pipeline-stage">
+          <div class="pipeline-stage-idx">STAGE 03 · WATERMARKING</div>
+          <div class="pipeline-stage-name">
+            <span>Decryptions Executed</span>
+            <span class="pipeline-stage-count">${d.sessions}</span>
+          </div>
+          <div class="pipeline-stage-desc">Plaintexts recovered with unique zero-width steganographic marks.</div>
+          <div class="pipeline-connector">▶</div>
+        </div>
+
+        <div class="pipeline-stage">
+          <div class="pipeline-stage-idx">STAGE 04 · CANONICAL DLT</div>
+          <div class="pipeline-stage-name">
+            <span>Provenance Records</span>
+            <span class="pipeline-stage-count">${d.provenance}</span>
+          </div>
+          <div class="pipeline-stage-desc">ML-DSA-65 signed records anchored in verified blocks (${d.blocks} blocks).</div>
+        </div>
+      </div>
+    </div>
+
     <div class="l" style="margin:16px 0 8px">Operational Metrics</div>
     <div class="g">${[['Documents', d.documents], ['Recipients', d.recipients], ['Decryption sessions', d.sessions], ['Provenance records', d.provenance], ['Ledger blocks', d.blocks], ['Investigations', d.investigations], ['Verified attributions', d.verified]].map(([a, b]) => `<div class="c"><div class="l">${a}</div><div class="n">${b}</div></div>`).join('')}</div>`;
   },
@@ -663,7 +949,72 @@ const VIEW = {
   },
   async id() {
     const k = await api('/identities'), A = ME.role === 'ADMIN';
-    return `<h2>Cryptographic identities</h2><p class="sub">Signing: ML-DSA-65 (simulated). Key establishment: ML-KEM-768 (simulated). Private keys are sealed and never returned by the API.</p>
+    const users = A ? await api('/users') : null;
+    return `<h2>Cryptographic identities &amp; access control</h2><p class="sub">Signing: ML-DSA-65 (simulated). Key establishment: ML-KEM-768 (simulated). Private keys are sealed and never returned by the API.</p>
+
+    ${A && users ? `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:24px 0 12px">
+      <div>
+        <h3 style="margin:0;font-size:16px">User accounts &amp; access governance</h3>
+        <p class="mu" style="margin:2px 0 0;font-size:12px">Manage active identities across SENDER, RECIPIENT, INVESTIGATOR, and ADMIN operational roles.</p>
+      </div>
+      <button class="p s" data-a="show-create-user" id="btn-toggle-create-user">+ Provision New Account</button>
+    </div>
+
+    <div class="c" id="create-user-card" style="display:${OUT?.showCreateUser ? 'block' : 'none'};margin-bottom:20px;border-left:4px solid var(--ac)">
+      <div class="l" style="color:var(--ac)">Provision Operator Account</div>
+      <p class="mu" style="font-size:12px;margin:4px 0 14px">Generate a new cryptographic identity with auto-derived ML-DSA-65 signing keys and ML-KEM-768 encapsulation keys.</p>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(200px, 1fr));gap:12px;margin-bottom:12px">
+        <div>
+          <label class="l">Full Name</label>
+          <input id="un" placeholder="e.g. Major Vikram Singh" maxlength="100" style="width:100%">
+        </div>
+        <div>
+          <label class="l">Username</label>
+          <input id="uu" placeholder="e.g. vikram" maxlength="32" style="width:100%">
+        </div>
+        <div>
+          <label class="l">Security Role</label>
+          <select id="ur" style="width:100%">
+            <option value="RECIPIENT">RECIPIENT (Decrypt briefs &amp; watermark)</option>
+            <option value="SENDER">SENDER (Classify, encrypt &amp; anchor)</option>
+            <option value="INVESTIGATOR">INVESTIGATOR (Forensic analysis)</option>
+            <option value="ADMIN">ADMIN (System governance &amp; consensus)</option>
+          </select>
+        </div>
+        <div>
+          <label class="l">Initial Password</label>
+          <input id="up" type="password" placeholder="Min 8 characters" maxlength="128" style="width:100%">
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="p" data-a="createuser">Create Operator Account</button>
+        <button class="s" data-a="cancel-create-user">Cancel</button>
+      </div>
+    </div>
+
+    <div class="c wrapx" style="margin-bottom:28px">
+      <div class="l">System User Directory</div>
+      <table>
+        <tr><th>User ID</th><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Provisioned</th><th>Actions</th></tr>
+        ${users.map(u => `
+          <tr>
+            <td class="m">${e(u.id)}</td>
+            <td><b>${e(u.name)}</b></td>
+            <td class="m mu">${e(u.username)}</td>
+            <td><span class="user-role-badge user-role-${e(u.role)}">${e(u.role)}</span></td>
+            <td><span class="tag ${u.status === 'ACTIVE' ? 'ok' : 'er'}">${e(u.status)}</span></td>
+            <td class="m mu">${e(u.created ? u.created.slice(0, 19).replace('T', ' ') : '—')}</td>
+            <td>
+              ${u.id !== ME.id ? `<button class="s ${u.status === 'ACTIVE' ? 'd' : ''}" data-a="toggleuser" data-v="${e(u.id)}">${u.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}</button>` : '<span class="mu m" style="font-size:11px">Current session</span>'}
+            </td>
+          </tr>
+        `).join('')}
+      </table>
+    </div>
+    ` : ''}
+
+    <div class="l" style="margin:16px 0 8px">Registered Public Keys on Ledger</div>
     <div class="c wrapx"><table><tr><th>Key</th><th>Owner</th><th>Identity</th><th>Ver</th><th>Status</th><th>Private key</th><th></th></tr>${k.map(x => `<tr><td class="m">${e(x.id)}</td><td>${e(x.name)}</td><td class="m">${e(x.identity_id)}</td><td>${x.ver}</td><td class="${x.status === 'ACTIVE' ? 'ok' : x.status === 'REVOKED' ? 'er' : 'wr'}">${e(x.status)}</td><td>🔒 <span class="m mu">SEALED</span></td><td>${x.status === 'ACTIVE' ? `${x.user_id === ME.id ? '<button class="s" data-a="rot">Rotate my key</button> ' : ''}${A ? `<button class="s d" data-a="rev" data-v="${e(x.user_id)}">Revoke</button>` : ''}` : ''}</td></tr>`).join('')}</table></div>
     <p class="mu">Rotated and revoked keys stay on the ledger, so historical records keep verifying against the key that signed them.</p>`;
   },
@@ -980,10 +1331,10 @@ function renderTour() {
     return;
   }
 
-  // Ensure appropriate view is selected
+  // If user navigated away from the required view for this tour step, cancel tour
   if (step.view && V !== step.view) {
-    V = step.view;
-    draw();
+    TOUR_ACTIVE = false;
+    document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
     return;
   }
 
@@ -991,46 +1342,94 @@ function renderTour() {
   if (!el && step.fallback) el = document.querySelector(step.fallback);
   if (!el) el = document.querySelector('main');
 
-  const rect = el ? el.getBoundingClientRect() : { top: 120, left: 100, width: 300, height: 100 };
+  // Clear previous highlighted styles
+  document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
+  if (el) el.classList.add('tour-highlighted-element');
 
-  // Scroll into view if offscreen
-  if (el && (rect.top < 0 || rect.bottom > window.innerHeight)) {
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // 1. Scroll target comfortably into view if offscreen or partially clipped
+  if (el) {
+    const initRect = el.getBoundingClientRect();
+    if (initRect.top < 60 || initRect.bottom > window.innerHeight - 40) {
+      el.scrollIntoView({ behavior: 'instant', block: 'center' });
+    }
   }
+
+  // 2. Measure target geometry after scroll has completed
+  const rect = el ? el.getBoundingClientRect() : { top: 120, left: 100, width: 300, height: 100, right: 400, bottom: 220 };
 
   const d = document.createElement('div');
   d.id = 'tour-root';
 
-  // Calculate tooltip placement outside the spotlight bounds
-  const hasRoomRight = rect.right + 360 < window.innerWidth;
-  const hasRoomBelow = rect.bottom + 260 < window.innerHeight;
-  const hasRoomLeft = rect.left > 360;
+  const isAutoplay = Boolean(TOUR_AUTOPLAY);
+  const durationMs = getTourStepDuration(step);
+
+  // 3. Dynamic layout evaluation: test candidate placements (Right, Left, Below, Above, and Docked Right for full-width)
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const tipWidth = Math.min(360, Math.max(300, vw - 40));
+  const estimatedTipHeight = 280;
+  const margin = 16;
+
+  const roomRight = vw - rect.right;
+  const roomLeft = rect.left;
+  const roomBelow = vh - rect.bottom;
+  const roomAbove = rect.top;
 
   let tipLeft = 20;
   let tipTop = 80;
   let arrowClass = 'top';
+  let arrowOffset = 30; // pixels along the tooltip edge
 
-  if (hasRoomRight) {
-    tipLeft = rect.right + 18;
-    tipTop = Math.max(70, Math.min(window.innerHeight - 300, rect.top));
+  // Determine if target spans most of the screen width (e.g. main, .c.wrapx tables, .g2)
+  const isWideTarget = rect.width > vw * 0.65;
+  const isTallTarget = rect.height > vh * 0.65;
+
+  if (roomRight >= tipWidth + margin + 10 && !isWideTarget) {
+    // Placement 1: RIGHT
     arrowClass = 'left';
-  } else if (hasRoomBelow) {
-    tipLeft = Math.max(20, Math.min(window.innerWidth - 370, rect.left));
-    tipTop = rect.bottom + 18;
-    arrowClass = 'top';
-  } else if (hasRoomLeft) {
-    tipLeft = Math.max(20, rect.left - 365);
-    tipTop = Math.max(70, Math.min(window.innerHeight - 300, rect.top));
+    tipLeft = rect.right + margin;
+    // Align tooltip center with target center, clamped inside viewport
+    const idealTop = (rect.top + rect.height / 2) - estimatedTipHeight / 2;
+    tipTop = Math.max(70, Math.min(vh - estimatedTipHeight - 20, idealTop));
+    // Position arrow pointing directly to target center
+    const targetCenterY = rect.top + rect.height / 2;
+    arrowOffset = Math.max(20, Math.min(estimatedTipHeight - 30, targetCenterY - tipTop));
+  } else if (roomLeft >= tipWidth + margin + 10 && !isWideTarget) {
+    // Placement 2: LEFT
     arrowClass = 'right';
-  } else {
-    // Top fallback
-    tipLeft = Math.max(20, Math.min(window.innerWidth - 370, rect.left));
-    tipTop = Math.max(70, rect.top - 240);
+    tipLeft = rect.left - tipWidth - margin;
+    const idealTop = (rect.top + rect.height / 2) - estimatedTipHeight / 2;
+    tipTop = Math.max(70, Math.min(vh - estimatedTipHeight - 20, idealTop));
+    const targetCenterY = rect.top + rect.height / 2;
+    arrowOffset = Math.max(20, Math.min(estimatedTipHeight - 30, targetCenterY - tipTop));
+  } else if (roomBelow >= estimatedTipHeight + margin + 10 && !isTallTarget) {
+    // Placement 3: BELOW
+    arrowClass = 'top';
+    tipTop = rect.bottom + margin;
+    // Align tooltip center with target center, clamped inside viewport
+    const idealLeft = (rect.left + rect.width / 2) - tipWidth / 2;
+    tipLeft = Math.max(20, Math.min(vw - tipWidth - 20, idealLeft));
+    const targetCenterX = rect.left + rect.width / 2;
+    arrowOffset = Math.max(24, Math.min(tipWidth - 36, targetCenterX - tipLeft));
+  } else if (roomAbove >= estimatedTipHeight + margin + 10 && !isTallTarget) {
+    // Placement 4: ABOVE
     arrowClass = 'bottom';
+    tipTop = rect.top - estimatedTipHeight - margin;
+    const idealLeft = (rect.left + rect.width / 2) - tipWidth / 2;
+    tipLeft = Math.max(20, Math.min(vw - tipWidth - 20, idealLeft));
+    const targetCenterX = rect.left + rect.width / 2;
+    arrowOffset = Math.max(24, Math.min(tipWidth - 36, targetCenterX - tipLeft));
+  } else {
+    // Large container fallback: position in right-hand overlay dock or bottom-right negative space
+    arrowClass = 'none';
+    tipLeft = Math.max(20, vw - tipWidth - 30);
+    tipTop = Math.max(75, Math.min(vh - estimatedTipHeight - 25, rect.top + 20));
   }
 
-  document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
-  if (el) el.classList.add('tour-highlighted-element');
+  // Arrow style attribute for dynamic pointer alignment
+  const arrowStyle = (arrowClass === 'left' || arrowClass === 'right')
+    ? `top:${Math.round(arrowOffset)}px;`
+    : `left:${Math.round(arrowOffset)}px;`;
 
   d.innerHTML = `
     <div class="tour-spotlight-box" style="
@@ -1039,10 +1438,11 @@ function renderTour() {
       width: ${rect.width + 8}px;
       height: ${rect.height + 8}px;
     "></div>
-    <div class="tour-tooltip-card" style="top: ${tipTop + window.scrollY}px; left: ${tipLeft}px">
-      <div class="tour-pointer-arrow ${arrowClass}"></div>
+    <div class="tour-tooltip-card" style="top: ${tipTop + window.scrollY}px; left: ${tipLeft}px; width: ${tipWidth}px">
+      ${isAutoplay ? `<div class="tour-auto-progress-bar"><div class="tour-auto-progress-fill" style="animation-duration:${durationMs}ms"></div></div>` : ''}
+      ${arrowClass !== 'none' ? `<div class="tour-pointer-arrow ${arrowClass}" style="${arrowStyle}"></div>` : ''}
       <div class="tour-header">
-        <span class="tour-step-tag">STEP ${TOUR_STEP + 1} OF ${steps.length}</span>
+        <span class="tour-step-tag">STEP ${TOUR_STEP + 1} OF ${steps.length}${isAutoplay ? ` · AUTO (${Math.round(durationMs / 1000)}s)` : ''}</span>
         <button type="button" class="s" data-a="tour-skip" style="font-size:10.5px;padding:2px 6px">Skip</button>
       </div>
       <h4 class="tour-title">${e(step.title)}</h4>
@@ -1052,7 +1452,12 @@ function renderTour() {
         ${e(step.why)}
       </div>
       <div class="tour-footer">
-        <button class="s" data-a="tour-back" ${TOUR_STEP === 0 ? 'disabled' : ''}>◀ Back</button>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="s" data-a="tour-back" ${TOUR_STEP === 0 ? 'disabled' : ''}>◀ Back</button>
+          <button class="s tour-auto-btn ${isAutoplay ? 'active' : ''}" data-a="tour-toggle-auto" title="${isAutoplay ? 'Pause automated walkthrough' : 'Automatically advance after reading'}">
+            ${isAutoplay ? '⏸ Pause' : '▶ Auto'}
+          </button>
+        </div>
         <div class="tour-footer-right">
           <button class="p s" data-a="tour-next">${TOUR_STEP === steps.length - 1 ? 'Finish Tour ✓' : 'Next ▶'}</button>
         </div>
@@ -1060,6 +1465,31 @@ function renderTour() {
     </div>
   `;
   document.body.appendChild(d);
+
+  if (isAutoplay) {
+    scheduleTourAutoplay(durationMs);
+  }
+}
+
+function scheduleTourAutoplay(ms) {
+  stopTourAutoplay();
+  TOUR_AUTOPLAY = setTimeout(() => {
+    TOUR_AUTOPLAY = null;
+    const steps = getTourSteps();
+    if (TOUR_STEP < steps.length - 1) {
+      TOUR_STEP++;
+      if (steps[TOUR_STEP] && steps[TOUR_STEP].view) V = steps[TOUR_STEP].view;
+      // Mark autoplay active so next step continues autoplaying
+      TOUR_AUTOPLAY = true;
+      draw();
+    } else {
+      stopTourAutoplay();
+      TOUR_ACTIVE = false;
+      TOUR_MODAL = 'done';
+      localStorage.setItem('sih_tour_done_' + (ME ? ME.id : 'anon'), '1');
+      draw();
+    }
+  }, ms);
 }
 
 function renderPublicHowItWorks() {
@@ -1319,24 +1749,29 @@ document.addEventListener('click', async ev => {
     HIW_SHOW_TECH = !HIW_SHOW_TECH;
     return draw();
   }
-  if (a === 'tour-start') {
+  if (a === 'tour-start' || a === 'tour-begin') {
+    stopTourAutoplay();
     TOUR_STEP = 0;
     TOUR_MODAL = null;
     TOUR_ACTIVE = true;
-    V = 'dash';
+    const steps = getTourSteps();
+    if (steps[0] && steps[0].view) V = steps[0].view;
     return draw();
   }
-  if (a === 'tour-begin') {
-    TOUR_MODAL = null;
-    TOUR_ACTIVE = true;
-    TOUR_STEP = 0;
-    V = 'dash';
+  if (a === 'tour-toggle-auto') {
+    if (TOUR_AUTOPLAY) {
+      stopTourAutoplay();
+    } else {
+      TOUR_AUTOPLAY = true;
+    }
     return draw();
   }
   if (a === 'tour-next') {
+    stopTourAutoplay();
     const steps = getTourSteps();
     if (TOUR_STEP < steps.length - 1) {
       TOUR_STEP++;
+      if (steps[TOUR_STEP] && steps[TOUR_STEP].view) V = steps[TOUR_STEP].view;
       return draw();
     } else {
       TOUR_ACTIVE = false;
@@ -1346,10 +1781,16 @@ document.addEventListener('click', async ev => {
     }
   }
   if (a === 'tour-back') {
-    if (TOUR_STEP > 0) TOUR_STEP--;
+    stopTourAutoplay();
+    if (TOUR_STEP > 0) {
+      TOUR_STEP--;
+      const steps = getTourSteps();
+      if (steps[TOUR_STEP] && steps[TOUR_STEP].view) V = steps[TOUR_STEP].view;
+    }
     return draw();
   }
   if (a === 'tour-skip') {
+    stopTourAutoplay();
     TOUR_ACTIVE = false;
     TOUR_MODAL = null;
     localStorage.setItem('sih_tour_done_' + (ME ? ME.id : 'anon'), '1');
@@ -1359,6 +1800,7 @@ document.addEventListener('click', async ev => {
     return;
   }
   if (a === 'tour-close') {
+    stopTourAutoplay();
     TOUR_MODAL = null;
     TOUR_ACTIVE = false;
     document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
@@ -1388,13 +1830,27 @@ document.addEventListener('click', async ev => {
   if (a === 'reset') return go(async () => { await api('/reset', 'POST', {}); toast('Demo environment reset'); });
   if (a === 'logout') {
     try { await api('/auth/logout', 'POST', {}); } catch {}
+    stopTourAutoplay();
     TOUR_ACTIVE = false;
     TOUR_MODAL = null;
     const old = $('tour-root');
     if (old) old.remove();
     return signout();
   }
-  if (a === 'nav') { V = v; OUT = null; if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; } return draw(); }
+  if (a === 'nav') {
+    if (TOUR_ACTIVE || TOUR_MODAL) {
+      stopTourAutoplay();
+      TOUR_ACTIVE = false;
+      TOUR_MODAL = null;
+      document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
+      const old = $('tour-root');
+      if (old) old.remove();
+    }
+    V = v;
+    OUT = null;
+    if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; }
+    return draw();
+  }
   if (a === 'hiw-mode') { HIW_MODE = v; HIW_STEP = 0; if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; } return draw(); }
   if (a === 'hiw-step') { HIW_STEP = parseInt(v, 10); if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; } return draw(); }
   if (a === 'hiw-prev') { if (HIW_STEP > 0) HIW_STEP--; return draw(); }
@@ -1437,6 +1893,18 @@ document.addEventListener('click', async ev => {
     else if (a === 'attack') { await api('/lab/compromise', 'POST', { nodeId: $('an').value, kind: $('ak').value }); toast('Attack applied to one validator only'); }
     else if (a === 'run') OUT = { inv: await api('/investigations', 'POST', { leakId: v }) };
     else if (a === 'upl') { const f = $('f').files[0]; if (!f) throw new Error('Choose a file first'); if (f.size > 500000) throw new Error('File too large'); OUT = { inv: await api('/investigations', 'POST', { text: await f.text(), label: f.name.slice(0, 80) }) }; }
+    else if (a === 'show-create-user') { OUT = { showCreateUser: true }; }
+    else if (a === 'cancel-create-user') { OUT = { showCreateUser: false }; }
+    else if (a === 'createuser') {
+      const name = $('un').value, username = $('uu').value, role = $('ur').value, password = $('up').value;
+      const res = await api('/users', 'POST', { name, username, role, password });
+      toast(`Operator account created: ${res.id} (${res.role})`);
+      OUT = { showCreateUser: false };
+    }
+    else if (a === 'toggleuser') {
+      const res = await api(`/users/${encodeURIComponent(v)}/toggle`, 'POST', {});
+      toast(`User ${res.id} status updated: ${res.status}`);
+    }
     else if (a === 'rot') { const r = await api('/identity/rotate', 'POST', {}); toast('New key ' + r.newKey); }
     else if (a === 'rev') { await api('/identity/revoke', 'POST', { userId: v }); toast('Key revoked; the identity can no longer sign'); }
     else if (a === 'lab') OUT = { lab: await api('/lab/run') };

@@ -238,6 +238,59 @@ export function createApp({ dataDir = null, demoMode = true, demoPassword = proc
     const rows = db.all(`select k.id,k.user_id,k.identity_id,k.ver,k.alg,k.status,k.created,k.revoked_at,substr(k.pub,1,24) pub,u.name from keys k join users u on u.id=k.user_id ${u.role === 'ADMIN' ? '' : 'where k.user_id=?'} order by k.user_id,k.ver`, ...(u.role === 'ADMIN' ? [] : [u.id]));
     return rows.map(r => ({ ...r, privateKey: 'SEALED (AES-256-GCM under owner-derived key)' }));
   }
+  function listUsers(actor) {
+    allow(actor, 'ADMIN');
+    return db.all('select id, name, username, role, status, created from users order by rowid');
+  }
+  function createUser(actor, kek, { name, username, role, password }) {
+    allow(actor, 'ADMIN');
+    need(typeof name === 'string' && name.trim() && name.trim().length <= 100, 'Full name required (max 100 chars)');
+    need(typeof username === 'string' && /^[a-z0-9_.-]{3,32}$/i.test(username.trim()), 'Username must be 3-32 alphanumeric characters');
+    const uName = username.trim().toLowerCase();
+    need(!db.get('select 1 from users where lower(username)=?', uName), 'Username already exists');
+    need(ROLES.includes(role), 'Invalid account role');
+    need(typeof password === 'string' && password.length >= 8 && password.length <= 128, 'Password must be between 8 and 128 characters');
+
+    // Deterministic monotonic ID generation matching ID_RE.user
+    const prefix = role === 'RECIPIENT' ? 'REC' : 'USR';
+    const rows = db.all('select id from users where id like ?', prefix + '-%');
+    let maxNum = 0;
+    for (const r of rows) {
+      const m = r.id.match(/^([A-Z]{3})-(\d{4})$/);
+      if (m) {
+        const n = parseInt(m[2], 10);
+        if (n > maxNum) maxNum = n;
+      }
+    }
+    const nextNum = maxNum + 1;
+    need(nextNum <= 9999, 'User ID space exhausted for prefix');
+    const id = `${prefix}-${String(nextNum).padStart(4, '0')}`;
+
+    let tx;
+    db.tx(() => {
+      tx = makeUser({ id, name: name.trim(), username: uName, role, password });
+      net.submit([tx]);
+    });
+    op(actor.id, 'ADMIN_USER_CREATED', `${id} (${role}) ${uName}`);
+    return { id, name: name.trim(), username: uName, role, status: 'ACTIVE', keyId: tx.payload.keyId };
+  }
+  function toggleUserStatus(actor, targetUserId) {
+    allow(actor, 'ADMIN');
+    need(ID_RE.user.test(String(targetUserId)), 'Invalid user ID');
+    const target = user(targetUserId);
+    need(target, 'User not found');
+    need(target.id !== actor.id, 'Cannot deactivate your own active administrator account');
+    const nextStatus = target.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+    db.run('update users set status=? where id=?', nextStatus, target.id);
+    if (nextStatus === 'INACTIVE') {
+      // Invalidate active login session if user deactivated
+      for (const [tokenHash, sess] of sessions.entries()) {
+        if (sess.userId === target.id) sessions.delete(tokenHash);
+      }
+    }
+    op(actor.id, 'USER_STATUS_TOGGLED', `${target.id} -> ${nextStatus}`);
+    return { id: target.id, status: nextStatus };
+  }
 
   // ---------------- administrative operations (recorded on the ledger as ADMIN_OPERATION) ----------------
   function toggleValidator(actor, kek, nodeId) {
@@ -331,5 +384,5 @@ export function createApp({ dataDir = null, demoMode = true, demoPassword = proc
   if (mem || !fs.existsSync(path.join(dataDir, 'app.db')) || !db.get("select name from sqlite_master where name='users'")) seed();
   else net = new Network(path.join(dataDir, 'validators'), ks);
   return { db, get net() { return net; }, reset: seed, login, logout, authenticate, makeUser, createDocument, listDocuments, decrypt, listSessions, createLeak, listLeaks, investigate, listInvestigations, txEvidence, ledgerBlocks, ledgerKeys, validators, validateLedger,
-    rotateKey, revokeKey, identities, toggleValidator, resyncValidator, compromise, audit, dashboard, lab, user, demoMode, unlockKey, activeKey, demoPassword, kekFor: (id, pw) => deriveKek(pw, user(id).kek_salt) };
+    rotateKey, revokeKey, identities, listUsers, createUser, toggleUserStatus, toggleValidator, resyncValidator, compromise, audit, dashboard, lab, user, demoMode, unlockKey, activeKey, demoPassword, kekFor: (id, pw) => deriveKek(pw, user(id).kek_salt) };
 }

@@ -26,6 +26,8 @@ test('route authorization: missing token 401, wrong role 403 (enforced server-si
   assert.equal((await post('/api/documents/DOC-0001/decrypt', {}, 'sender')).status, 403); assert.equal((await get('/api/documents', 'forensic')).status, 403);
   assert.equal((await post('/api/validators/NODE-01/toggle', {}, 'forensic')).status, 403); assert.equal((await post('/api/lab/compromise', { nodeId: 'NODE-01', kind: 'modify-block' }, 'riya')).status, 403);
   assert.equal((await post('/api/identity/revoke', { userId: 'REC-0192' }, 'riya')).status, 403); assert.equal((await post('/api/documents', { name: 'x', content: 'y' }, 'riya')).status, 403);
+  assert.equal((await get('/api/users', 'sender')).status, 403); assert.equal((await post('/api/users', { name: 'x' }, 'riya')).status, 403);
+  assert.equal((await post('/api/users/REC-0192/toggle', {}, 'forensic')).status, 403);
   assert.equal((await get('/api/audit', 'riya')).status, 403);
 });
 test('unauthorized decrypt over HTTP: 403 and nothing created', async () => {

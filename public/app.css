@@ -174,7 +174,14 @@ h3 {
 #app {
   display: flex;
   min-height: 100vh;
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image: 
+    radial-gradient(circle at 10% 20%, rgba(56, 189, 248, 0.03) 0%, transparent 40%),
+    radial-gradient(circle at 90% 80%, rgba(52, 211, 153, 0.02) 0%, transparent 45%),
+    linear-gradient(to right, rgba(255, 255, 255, 0.015) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.015) 1px, transparent 1px);
+  background-size: 100% 100%, 100% 100%, 48px 48px, 48px 48px;
+  position: relative;
 }
 
 aside {
@@ -1703,6 +1710,15 @@ pre {
    FIRST-TIME USER ONBOARDING TOUR & SPOTLIGHT SYSTEM
    ========================================================================== */
 
+#tour-root {
+  pointer-events: none;
+}
+
+#tour-root .tour-center-modal,
+#tour-root .tour-tooltip-card {
+  pointer-events: auto;
+}
+
 /* Dark Backdrop Overlay with cutout spotlight effect */
 .tour-backdrop {
   display: none; /* Replaced by transparent spotlight cutout mask */
@@ -1820,6 +1836,54 @@ pre {
   gap: 8px;
 }
 
+.tour-auto-btn {
+  font-size: 11px !important;
+  padding: 4px 8px !important;
+  color: var(--tx-secondary) !important;
+  border-color: var(--bd-light) !important;
+  transition: all 0.2s ease;
+}
+
+.tour-auto-btn:hover {
+  color: var(--ac) !important;
+  border-color: var(--ac) !important;
+}
+
+.tour-auto-btn.active {
+  background: var(--ac-bg) !important;
+  color: var(--ac) !important;
+  border-color: var(--ac-border) !important;
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.25);
+}
+
+/* Dynamic Reading Interval Progress Bar */
+.tour-auto-progress-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: var(--bd-subtle);
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  overflow: hidden;
+}
+
+.tour-auto-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--ac), var(--ok));
+  box-shadow: 0 0 6px var(--ac);
+  animation-name: tourAutoFill;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
+@keyframes tourAutoFill {
+  from { width: 0%; }
+  to { width: 100%; }
+}
+
 /* Subtle Pointer Arrow */
 .tour-pointer-arrow {
   position: absolute;
@@ -1828,33 +1892,29 @@ pre {
   background: var(--pn-elevated);
   border: 1px solid var(--ac-border);
   transform: rotate(45deg);
-  z-index: 99989;
+  z-index: 99992;
 }
 
 .tour-pointer-arrow.top {
   top: -7px;
-  left: 30px;
   border-bottom: none;
   border-right: none;
 }
 
 .tour-pointer-arrow.bottom {
   bottom: -7px;
-  left: 30px;
   border-top: none;
   border-left: none;
 }
 
 .tour-pointer-arrow.left {
   left: -7px;
-  top: 25px;
   border-top: none;
   border-right: none;
 }
 
 .tour-pointer-arrow.right {
   right: -7px;
-  top: 25px;
   border-bottom: none;
   border-left: none;
 }
@@ -1901,5 +1961,150 @@ pre {
   justify-content: center;
   gap: 12px;
 }
+
+/* ==========================================================================
+   DYNAMIC PROVENANCE PIPELINE GRAPHIC (REAL-DATA LIFECYCLE)
+   ========================================================================== */
+
+.lifecycle-pipeline-card {
+  background: var(--pn);
+  border: 1px solid var(--bd);
+  border-radius: 8px;
+  padding: 18px 20px;
+  margin-bottom: 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+.lifecycle-pipeline-card::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--ac) 0%, var(--ok) 50%, var(--ac) 100%);
+  opacity: 0.8;
+}
+
+.lifecycle-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.lifecycle-pipeline-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  position: relative;
+}
+
+@media (max-width: 900px) {
+  .lifecycle-pipeline-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.pipeline-stage {
+  background: var(--p2);
+  border: 1px solid var(--bd-subtle);
+  border-radius: 6px;
+  padding: 14px 16px;
+  position: relative;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.pipeline-stage:hover {
+  border-color: var(--ac-border);
+  transform: translateY(-1px);
+}
+
+.pipeline-stage-idx {
+  font-size: 10px;
+  font-family: var(--font-mono, monospace);
+  color: var(--mu);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pipeline-stage-idx::before {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--ac);
+}
+
+.pipeline-stage-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--tx);
+  margin-bottom: 4px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.pipeline-stage-count {
+  font-size: 20px;
+  font-weight: 800;
+  font-family: var(--font-mono, monospace);
+  color: var(--tx);
+}
+
+.pipeline-stage-desc {
+  font-size: 11.5px;
+  color: var(--mu);
+  margin-top: 6px;
+  line-height: 1.4;
+}
+
+.pipeline-connector {
+  position: absolute;
+  top: 50%;
+  right: -10px;
+  transform: translateY(-50%);
+  color: var(--bd-light);
+  font-size: 12px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+@media (max-width: 900px) {
+  .pipeline-connector {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pipeline-stage, .pipeline-stage:hover {
+    transition: none;
+    transform: none;
+  }
+}
+
+/* User management form & badge elements */
+.user-role-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  font-size: 10.5px;
+  font-family: var(--font-mono, monospace);
+  font-weight: 700;
+  border-radius: 4px;
+  letter-spacing: 0.04em;
+}
+
+.user-role-ADMIN { background: rgba(248, 113, 113, 0.12); color: var(--er); border: 1px solid var(--er-border); }
+.user-role-INVESTIGATOR { background: rgba(251, 191, 36, 0.12); color: var(--wr); border: 1px solid var(--wr-border); }
+.user-role-SENDER { background: rgba(56, 189, 248, 0.12); color: var(--ac); border: 1px solid var(--ac-border); }
+.user-role-RECIPIENT { background: rgba(52, 211, 153, 0.12); color: var(--ok); border: 1px solid var(--ok-border); }
+
 
 

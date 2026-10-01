@@ -39,6 +39,9 @@ export function createHttpServer(app, { log = console.error } = {}) {
   R('GET', '/api/identities', ALL, a => app.identities(a.user));
   R('POST', '/api/identity/rotate', ALL, a => app.rotateKey(a.user, a.kek));
   R('POST', '/api/identity/revoke', ['ADMIN'], (a, _, b) => app.revokeKey(a.user, a.kek, b.userId, b.reason));
+  R('GET', '/api/users', ['ADMIN'], a => app.listUsers(a.user));
+  R('POST', '/api/users', ['ADMIN'], (a, _, b) => app.createUser(a.user, a.kek, b));
+  R('POST', '/api/users/:id/toggle', ['ADMIN'], (a, [id]) => app.toggleUserStatus(a.user, id));
   R('GET', '/api/audit', ['SENDER', 'INVESTIGATOR', 'ADMIN'], () => app.audit());
   R('POST', '/api/reset', null, (a, _, __, ___, req) => {
     const loopback = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
