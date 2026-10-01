@@ -1,4 +1,5 @@
 import http from 'node:http';
+import https from 'node:https';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,17 +12,19 @@ const HEADERS = { 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY'
   'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'" };
 const ALL = ['SENDER', 'RECIPIENT', 'INVESTIGATOR', 'ADMIN'], MAX_BODY = 1_000_000;
 
-export function createHttpServer(app, { log = console.error } = {}) {
+export function createHttpServer(app, { log = console.error, tls = null } = {}) {
   const routes = [];
   const R = (m, p, roles, h) => routes.push([m, new RegExp('^' + p.replace(/:\w+/g, '([^/]+)') + '$'), roles, h]);
   // ---- routes: every handler receives (auth, params, body) where auth = {user, kek} ----
   R('POST', '/api/auth/login', null, (_, __, b) => app.login(b.username, b.password));
   R('POST', '/api/auth/logout', ALL, (a, _, __, tok) => { app.logout(tok); return { ok: true }; });
+  R('POST', '/api/auth/change-password', ALL, (a, _, b) => app.changePassword(a.user, a.kek, b));
   R('GET', '/api/me', ALL, a => ({ id: a.user.id, name: a.user.name, role: a.user.role }));
   R('GET', '/api/dashboard', ALL, () => app.dashboard());
   R('GET', '/api/documents', ['SENDER', 'RECIPIENT', 'ADMIN'], a => app.listDocuments(a.user));
   R('POST', '/api/documents', ['SENDER'], (a, _, b) => app.createDocument(a.user, a.kek, b));
-  R('POST', '/api/documents/:id/decrypt', ['RECIPIENT'], (a, [id]) => app.decrypt(a.user, a.kek, id));
+  R('POST', '/api/documents/:id/decrypt', ['RECIPIENT'], (a, [id], b) => app.decrypt(a.user, a.kek, id, b?.clientSignedRecord));
+  R('POST', '/api/documents/:id/revoke', ['SENDER', 'ADMIN'], (a, [id], b) => app.revokeAuthorization(a.user, a.kek, { documentId: id, recipientId: b.recipientId, reason: b.reason }));
   R('GET', '/api/sessions', ALL, a => app.listSessions(a.user));
   R('POST', '/api/leaks', ['SENDER', 'RECIPIENT', 'ADMIN'], (a, _, b) => app.createLeak(a.user, b.sessionId));
   R('GET', '/api/leaks', ['INVESTIGATOR', 'ADMIN'], () => app.listLeaks());
@@ -34,7 +37,10 @@ export function createHttpServer(app, { log = console.error } = {}) {
   R('GET', '/api/validators', ALL, () => app.validators());
   R('POST', '/api/validators/:id/toggle', ['ADMIN'], (a, [id]) => app.toggleValidator(a.user, a.kek, id));
   R('POST', '/api/validators/:id/resync', ['ADMIN'], (a, [id]) => app.resyncValidator(a.user, a.kek, id));
-  R('POST', '/api/lab/compromise', ['ADMIN'], (a, _, b) => app.compromise(a.user, b.nodeId, b.kind));
+  R('POST', '/api/lab/compromise', ['ADMIN'], (a, _, b) => {
+    if (!app.demoMode) throw ERR(403, 'Attack simulation is disabled outside demo mode');
+    return app.compromise(a.user, b.nodeId, b.kind);
+  });
   R('GET', '/api/lab/run', ['INVESTIGATOR', 'ADMIN'], () => app.lab());
   R('GET', '/api/identities', ALL, a => app.identities(a.user));
   R('POST', '/api/identity/rotate', ALL, a => app.rotateKey(a.user, a.kek));
@@ -45,10 +51,15 @@ export function createHttpServer(app, { log = console.error } = {}) {
   R('GET', '/api/audit', ['SENDER', 'INVESTIGATOR', 'ADMIN'], () => app.audit());
   R('POST', '/api/reset', null, (a, _, __, ___, req) => {
     const loopback = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
-    if (!(a?.user.role === 'ADMIN' || (app.demoMode && loopback))) throw ERR(403, 'Reset is limited to administrators or local demo use');
+    if (a?.user?.role !== 'ADMIN' && (!app.demoMode || !loopback)) throw ERR(403, 'Reset is limited to administrators or local demo use');
     app.reset(); return { ok: true };
   });
-  return http.createServer((req, res) => {
+  const tlsConfig = tls || (process.env.TLS_CERT_PATH && process.env.TLS_KEY_PATH ? {
+    cert: fs.readFileSync(process.env.TLS_CERT_PATH),
+    key: fs.readFileSync(process.env.TLS_KEY_PATH)
+  } : null);
+
+  const requestHandler = (req, res) => {
     let body = '', size = 0, dead = false;
     const send = (code, obj, type = 'application/json') => { if (dead) return; res.writeHead(code, { ...HEADERS, 'content-type': type }); res.end(type === 'application/json' ? J(obj) : obj); };
     req.on('data', d => {
@@ -83,5 +94,7 @@ export function createHttpServer(app, { log = console.error } = {}) {
         log('internal error:', e.message); send(dup ? 409 : 500, { error: dup ? 'Duplicate submission rejected' : 'Internal error' });
       }
     });
-  });
+  };
+
+  return tlsConfig ? https.createServer(tlsConfig, requestHandler) : http.createServer(requestHandler);
 }

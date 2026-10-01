@@ -8,7 +8,7 @@ import { sigKeypair, sigSign, kemKeypair, kemEncap, kemDecap, aeadEnc, aeadDec, 
 import { createKeystore, deriveKek, volatileKeystore } from './keystore.js';
 import { Network, QUORUM, NODE_IDS, verifyChain } from './ledger.js';
 import { generateWatermarkId, embedWatermark, extractWatermark, WM_RE } from './watermark.js';
-import { identityIdFor, keyRegistration, provenanceTx, statusChangeTx, adminOpTx, authorizationTx, evidenceFor, keyIdFor } from './provenance.js';
+import { identityIdFor, keyRegistration, provenanceTx, statusChangeTx, adminOpTx, authorizationTx, authorizationRevocationTx, evidenceFor, keyIdFor } from './provenance.js';
 
 const ROLES = ['SENDER', 'RECIPIENT', 'INVESTIGATOR', 'ADMIN'];
 const CLASSES = ['RESTRICTED', 'CONFIDENTIAL', 'SECRET'];
@@ -32,7 +32,7 @@ export function createApp({ dataDir = null, demoMode = true, demoPassword = proc
     create table keys(id text primary key,user_id,identity_id,ver integer,alg,pub,sealed,status,created,revoked_at);
     create table kem(user_id text primary key,alg,pub,sealed);
     create table documents(id text primary key,name,cls,version,owner,hash,enc,created);
-    create table auth(id text primary key,doc_id,user_id,kem_ct,wrapped,created,unique(doc_id,user_id));
+    create table auth(id text primary key,doc_id,user_id,kem_ct,wrapped,created,status text default 'GRANTED',revoked_at,unique(doc_id,user_id));
     create table sessions(id text primary key,doc_id,doc_ver,user_id,auth_id,wm text unique,ts,status,repr_sealed,tx_id,block_idx integer);
     create table leaks(id text primary key,session_id,content,ts);
     create table inv(id text primary key,ts,by,result);
@@ -89,6 +89,55 @@ export function createApp({ dataDir = null, demoMode = true, demoPassword = proc
     if (s.exp < Date.now()) { sessions.delete(h); return null; }
     const u = user(s.userId); return u && u.status === 'ACTIVE' ? { user: u, kek: s.kek } : null;
   }
+  function changePassword(u, kek, { currentPassword, newPassword, confirmPassword }) {
+    need(u && u.status === 'ACTIVE', 'Authentication required');
+    need(typeof currentPassword === 'string' && currentPassword.length > 0, 'Current password required');
+    need(typeof newPassword === 'string' && newPassword.length >= 8 && newPassword.length <= 128, 'New password must be 8-128 characters');
+    need(newPassword === confirmPassword, 'New passwords do not match');
+    need(newPassword !== currentPassword, 'New password must differ from current password');
+
+    // Verify current password with constant-time equality
+    const curHash = c.scryptSync(currentPassword, Buffer.from(u.pw_salt, 'hex'), 32);
+    need(c.timingSafeEqual(curHash, Buffer.from(u.pw_hash, 'hex')), 'Current password incorrect');
+
+    // Generate fresh salts and new KEK
+    const newPwSalt = c.randomBytes(16).toString('hex');
+    const newKekSalt = c.randomBytes(16).toString('hex');
+    const newKek = deriveKek(newPassword, newKekSalt);
+    const newPwHash = c.scryptSync(newPassword, Buffer.from(newPwSalt, 'hex'), 32).toString('hex');
+
+    // Re-encrypt all user keys under new KEK
+    db.tx(() => {
+      // Re-seal signature keys
+      const userKeys = db.all('select * from keys where user_id=?', u.id);
+      for (const k of userKeys) {
+        let priv;
+        try { priv = aeadDec(kek, P(k.sealed), 'key:' + k.id); } catch { throw ERR(500, 'Failed to unseal key for re-encryption'); }
+        const newSealed = J(aeadEnc(newKek, priv, 'key:' + k.id));
+        db.run('update keys set sealed=? where id=?', newSealed, k.id);
+        priv.fill(0);
+      }
+      // Re-seal KEM key
+      const kemRow = db.get('select * from kem where user_id=?', u.id);
+      if (kemRow) {
+        let kemPriv;
+        try { kemPriv = aeadDec(kek, P(kemRow.sealed), 'kem:' + u.id); } catch { throw ERR(500, 'Failed to unseal KEM key for re-encryption'); }
+        const newKemSealed = J(aeadEnc(newKek, kemPriv, 'kem:' + u.id));
+        db.run('update kem set sealed=? where user_id=?', newKemSealed, u.id);
+        kemPriv.fill(0);
+      }
+      // Update user password credentials
+      db.run('update users set pw_hash=?, pw_salt=?, kek_salt=? where id=?', newPwHash, newPwSalt, newKekSalt, u.id);
+      
+      // Invalidate all existing login sessions for this user
+      for (const [tokenHash, sess] of sessions.entries()) {
+        if (sess.userId === u.id) sessions.delete(tokenHash);
+      }
+    });
+
+    op(u.id, 'PASSWORD_CHANGED', 'Keys re-sealed and prior sessions invalidated');
+    return { ok: true, message: 'Password changed successfully. Please authenticate with your new credentials.' };
+  }
   const logout = token => { sessions.delete(sha(String(token))); };
 
   // ---------------- documents & decryption ----------------
@@ -105,7 +154,7 @@ export function createApp({ dataDir = null, demoMode = true, demoPassword = proc
         db.run('insert into documents values(?,?,?,?,?,?,?,?)', id, name.trim(), cls, ver, owner.id, hash, J(aeadEnc(cek, Buffer.from(content), `doc:${id}:${ver}`)), now());
         for (const r of rs) {
           const { ct, key } = kemEncap(db.get('select pub from kem where user_id=?', r).pub), aid = rid('AUT');
-          db.run('insert into auth values(?,?,?,?,?,?)', aid, id, r, ct, J(aeadEnc(key, cek, `wrap:${id}:${r}`)), now());
+          db.run('insert into auth(id,doc_id,user_id,kem_ct,wrapped,created,status,revoked_at) values(?,?,?,?,?,?,?,?)', aid, id, r, ct, J(aeadEnc(key, cek, `wrap:${id}:${r}`)), now(), 'GRANTED', null);
           atx.push(authorizationTx(actor, { authorizationId: aid, documentId: id, documentVersion: ver, documentHash: hash, recipientId: r }));
         }
         if (atx.length) net.submit(atx); // authorizations are anchored on the ledger, signed by the sender
@@ -114,19 +163,41 @@ export function createApp({ dataDir = null, demoMode = true, demoPassword = proc
   }
   function listDocuments(u) {
     let rows = db.all('select * from documents order by id');
-    if (u.role === 'RECIPIENT') rows = rows.filter(d => db.get('select 1 x from auth where doc_id=? and user_id=?', d.id, u.id));
+    if (u.role === 'RECIPIENT') rows = rows.filter(d => db.get("select 1 x from auth where doc_id=? and user_id=? and (status is null or status='GRANTED')", d.id, u.id));
     if (u.role === 'SENDER') rows = rows.filter(d => d.owner === u.id);
     return {
       recipients: u.role === 'SENDER' ? db.all("select id,name from users where role='RECIPIENT'") : [],
       docs: rows.map(d => ({ id: d.id, name: d.name, cls: d.cls, version: d.version, hash: d.hash, created: d.created, enc: 'AES-256-GCM', decryptions: db.get('select count(*) n from sessions where doc_id=?', d.id).n,
-        authorized: u.role === 'RECIPIENT' ? [] : db.all('select user_id id from auth where doc_id=?', d.id).map(a => ({ id: a.id, name: nameOf(a.id) })) }))
+        authorized: u.role === 'RECIPIENT' ? [] : db.all('select id, user_id, status from auth where doc_id=?', d.id).map(a => ({ authId: a.id, id: a.user_id, name: nameOf(a.user_id), status: a.status || 'GRANTED' })) }))
     };
   }
-  function decrypt(u, kek, docId) {
+  function revokeAuthorization(actor, kek, { documentId, recipientId, reason = 'administrative revocation' }) {
+    allow(actor, 'SENDER', 'ADMIN');
+    need(typeof documentId === 'string' && ID_RE.doc.test(documentId), 'Invalid document id');
+    need(typeof recipientId === 'string' && ID_RE.user.test(recipientId), 'Invalid recipient id');
+    const doc = db.get('select * from documents where id=?', documentId);
+    need(doc, 'Document not found');
+    if (actor.role === 'SENDER') need(doc.owner === actor.id, 'Cannot revoke authorization for a document you do not own');
+    const a = db.get("select * from auth where doc_id=? and user_id=?", documentId, recipientId);
+    need(a, 'Authorization grant not found');
+    need(a.status !== 'REVOKED', 'Authorization grant is already revoked');
+    const act = actorOf(actor, kek);
+    const rtx = authorizationRevocationTx(act, { authorizationId: a.id, documentId, recipientId, reason });
+    try {
+      db.tx(() => {
+        net.submit([rtx]);
+        db.run("update auth set status='REVOKED', revoked_at=? where id=?", now(), a.id);
+      });
+    } finally { act.priv.fill(0); }
+    op(actor.id, 'AUTHORIZATION_REVOKED', `${documentId} -> ${recipientId} (${a.id})`);
+    return { documentId, recipientId, authorizationId: a.id, status: 'REVOKED' };
+  }
+  function decrypt(u, kek, docId, clientSignedRecord = null) {
     allow(u, 'RECIPIENT');
     need(typeof docId === 'string' && ID_RE.doc.test(docId), 'Invalid document id');
     const d = db.get('select * from documents where id=?', docId), a = d && db.get('select * from auth where doc_id=? and user_id=?', docId, u.id);
     if (!a) { op(u.id, 'DECRYPTION_DENIED', docId); throw ERR(403, 'ACCESS DENIED: this identity is not authorized to decrypt this document. No session, watermark, signature or ledger transaction was created.'); }
+    if (a.status === 'REVOKED') { op(u.id, 'DECRYPTION_REVOKED_DENIED', docId); throw ERR(403, 'ACCESS DENIED: authorization grant for this identity was revoked on the ledger. Decryption refused.'); }
     const key = activeKey(u.id); op(u.id, 'DECRYPTION_STARTED', docId);
     let kp = null, cek = null;
     try {
@@ -134,9 +205,23 @@ export function createApp({ dataDir = null, demoMode = true, demoPassword = proc
       try { kp = aeadDec(kek, P(kemRow.sealed), 'kem:' + u.id); } catch { throw ERR(403, 'Private key cannot be unlocked by this caller'); }
       cek = aeadDec(kemDecap(kp, a.kem_ct), P(a.wrapped), `wrap:${docId}:${u.id}`);
       const text = aeadDec(cek, P(d.enc), `doc:${d.id}:${d.version}`).toString();
-      const sessionId = rid('SES'), wm = generateWatermarkId(), rep = embedWatermark(text, wm);
-      const record = { documentId: d.id, documentVersion: d.version, documentHash: d.hash, recipientId: u.id, identityId: key.identity_id, sessionId, watermarkId: wm, keyId: key.id, keyVersion: key.ver, authorizationId: a.id, timestamp: now(), signatureAlgorithm: SIG_ALG };
-      const priv = unlockKey(key, kek); let tx; try { tx = provenanceTx(record, priv); } finally { priv.fill(0); }
+      const sessionId = clientSignedRecord?.record?.sessionId || rid('SES');
+      const wm = clientSignedRecord?.record?.watermarkId || generateWatermarkId();
+      const rep = embedWatermark(text, wm);
+      const record = { documentId: d.id, documentVersion: d.version, documentHash: d.hash, recipientId: u.id, identityId: key.identity_id, sessionId, watermarkId: wm, keyId: key.id, keyVersion: key.ver, authorizationId: a.id, timestamp: clientSignedRecord?.record?.timestamp || now(), signatureAlgorithm: SIG_ALG };
+      
+      let tx;
+      if (clientSignedRecord && clientSignedRecord.sig) {
+        // Client-side signing: recipient private signing key never touched the server for this signature
+        const claimed = clientSignedRecord.record;
+        need(claimed && claimed.documentId === record.documentId && claimed.recipientId === record.recipientId && claimed.authorizationId === record.authorizationId, 'Client record mismatch');
+        tx = { id: rid('TX'), type: 'PROVENANCE', payload: { record }, sig: clientSignedRecord.sig };
+      } else {
+        // Fallback server unsealing for non-client signing
+        const priv = unlockKey(key, kek);
+        try { tx = provenanceTx(record, priv); } finally { priv.fill(0); }
+      }
+
       const res = db.tx(() => {
         const r = net.submit([tx]); // throws (and rolls back the session row) if validators reject or quorum is missing
         db.run('insert into sessions values(?,?,?,?,?,?,?,?,?,?,?)', sessionId, d.id, d.version, u.id, a.id, wm, record.timestamp, 'COMPLETED', J(ks.seal(Buffer.from(rep), 'repr:' + sessionId)), tx.id, r.block);
@@ -144,7 +229,7 @@ export function createApp({ dataDir = null, demoMode = true, demoPassword = proc
       });
       for (const t of ['DECRYPTION_COMPLETED', 'WATERMARK_GENERATED', 'SIGNATURE_CREATED', 'LEDGER_COMMIT']) op(u.id, t, `${sessionId} ${wm} ${tx.id}`);
       const ev = txEvidence(tx.id);
-      return { sessionId, watermarkId: wm, transactionId: tx.id, block: res.block, approvals: res.approvals, keyId: key.id, evidence: ev, representation: rep };
+      return { sessionId, watermarkId: wm, transactionId: tx.id, block: res.block, approvals: res.approvals, keyId: key.id, evidence: ev, representation: rep, recordToSign: record };
     } finally { kp?.fill(0); cek?.fill(0); }
   }
   const reprOf = s => ks.open(P(s.repr_sealed), 'repr:' + s.id).toString();
@@ -176,8 +261,9 @@ export function createApp({ dataDir = null, demoMode = true, demoPassword = proc
       signatureValid: false, transactionValid: false, blockValid: false, chainValid: false, validatorAgreement: null, ledgerValid: false, attributionStatus: 'NO_ATTRIBUTION', reason: null, statement: null, evidence: null };
     const save = () => { db.run('insert into inv values(?,?,?,?)', id, r.ts, u.id, J(r)); return r; };
     step('Read artefact', true, art.length + ' characters');
-    const ex = extractWatermark(art); step('Extract watermark', !!ex.id, ex.id ? `${ex.copies} copies recovered` : ex.reason);
-    if (!ex.id) { r.reason = ex.reason; r.statement = 'No forensic watermark could be recovered from this artefact, so no attribution is possible. This is not evidence about any recipient.'; return save(); }
+    const ex = extractWatermark(art); step('Extract watermark', !!ex.id, ex.id ? `${ex.copies} copies recovered (${ex.status})` : `${ex.status}: ${ex.reason}`);
+    r.extractionStatus = ex.status;
+    if (!ex.id) { r.reason = ex.reason; r.statement = `Watermark extraction result: ${ex.status}. No forensic watermark could be recovered from this artefact, so no attribution is possible. Note: absence of a watermark is never evidence that a particular recipient did not disclose the document.`; return save(); }
     r.watermarkRecovered = true; r.watermarkId = ex.id; op('SYSTEM', 'WATERMARK_EXTRACTED', ex.id); step('Validate watermark structure', WM_RE.test(ex.id), 'format and checksum');
     const { view, found } = net.findProvenance(ex.id);
     step('Search ledger', !!found, found ? 'provenance transaction located' : (view.canonical ? 'no transaction carries this watermark' : 'no verified ledger majority'));
@@ -383,6 +469,6 @@ export function createApp({ dataDir = null, demoMode = true, demoPassword = proc
 
   if (mem || !fs.existsSync(path.join(dataDir, 'app.db')) || !db.get("select name from sqlite_master where name='users'")) seed();
   else net = new Network(path.join(dataDir, 'validators'), ks);
-  return { db, get net() { return net; }, reset: seed, login, logout, authenticate, makeUser, createDocument, listDocuments, decrypt, listSessions, createLeak, listLeaks, investigate, listInvestigations, txEvidence, ledgerBlocks, ledgerKeys, validators, validateLedger,
+  return { db, get net() { return net; }, reset: seed, login, logout, authenticate, changePassword, makeUser, createDocument, listDocuments, decrypt, revokeAuthorization, listSessions, createLeak, listLeaks, investigate, listInvestigations, txEvidence, ledgerBlocks, ledgerKeys, validators, validateLedger,
     rotateKey, revokeKey, identities, listUsers, createUser, toggleUserStatus, toggleValidator, resyncValidator, compromise, audit, dashboard, lab, user, demoMode, unlockKey, activeKey, demoPassword, kekFor: (id, pw) => deriveKek(pw, user(id).kek_salt) };
 }

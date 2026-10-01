@@ -17,8 +17,13 @@ export function embedWatermark(text, id) {
   out += text.slice(last); return at.length ? out : out + m;
 }
 export function extractWatermark(text) {
+  if (typeof text !== 'string') {
+    return { id: null, copies: 0, status: 'UNSUPPORTED_ARTIFACT_TYPE', reason: 'Artifact is not a valid text representation' };
+  }
   const marks = [...String(text).matchAll(/\u2060([\u200b\u200c]+)\u2060/g)].map(m => m[1]);
-  if (!marks.length) return { id: null, copies: 0, reason: 'no watermark signal found' };
+  if (!marks.length) {
+    return { id: null, copies: 0, status: 'NO_SUPPORTED_WATERMARK_FOUND', reason: 'no watermark signal found' };
+  }
   const votes = new Map();
   for (const z of marks) {
     const bits = [...z].map(x => ZW.indexOf(x)).join(''); let s = '';
@@ -26,8 +31,10 @@ export function extractWatermark(text) {
     const [id, k] = s.split('|');
     if (id && WM_RE.test(id) && k === chk(id)) votes.set(id, (votes.get(id) || 0) + 1);
   }
-  if (!votes.size) return { id: null, copies: marks.length, reason: 'signal present but checksum/structure invalid' };
+  if (!votes.size) {
+    return { id: null, copies: marks.length, status: 'WATERMARK_INTEGRITY_FAILED', reason: 'signal present but checksum/structure invalid' };
+  }
   const [id, copies] = [...votes].sort((a, b) => b[1] - a[1])[0];
-  return { id, copies, reason: null };
+  return { id, copies, status: 'WATERMARK_FOUND', reason: null };
 }
 export const stripInvisible = t => t.replace(/[\u200b\u200c\u2060]/g, '');

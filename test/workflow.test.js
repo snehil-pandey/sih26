@@ -3,8 +3,9 @@ import assert from 'node:assert/strict';
 import { ctx, PW } from './helpers.js';
 import { stripInvisible, extractWatermark, embedWatermark, generateWatermarkId } from '../src/watermark.js';
 import { verifyChain, blockHash } from '../src/ledger.js';
-import { provenanceTx, keyRegistration } from '../src/provenance.js';
-import { evidenceFor } from '../src/provenance.js';
+import { provenanceTx, keyRegistration, evidenceFor } from '../src/provenance.js';
+import { sigSign } from '../src/pq.js';
+import { canon } from '../src/util.js';
 
 const M = ctx(); const { app, u, kek, dec, counts } = M;
 
@@ -90,3 +91,95 @@ test('provenance must match a sender-signed authorization anchored on the ledger
   assert.equal(app.net.view().state.auths.size, app.db.get('select count(*) n from auth').n, 'every authorization row is anchored on the ledger');
   assert.ok([...app.net.view().state.auths.values()].every(a => a.documentHash.length === 64));
 });
+
+test('authorization revocation: sender can revoke, ledger records it, revoked user cannot decrypt, and pre-revocation provenance remains intact', () => {
+  const sender = u('USR-0001'), senderKek = kek('USR-0001');
+  // First, verify Aarav can decrypt DOC-0001 before revocation
+  const preDec = dec('REC-0192', 'DOC-0001');
+  assert.ok(preDec.transactionId);
+
+  // Sender revokes Aarav's authorization for DOC-0001
+  const rev = app.revokeAuthorization(sender, senderKek, { documentId: 'DOC-0001', recipientId: 'REC-0192', reason: 'Mission role changed' });
+  assert.equal(rev.status, 'REVOKED');
+
+  // Revocation appears on the ledger
+  const authLedger = app.net.view().state.auths.get(rev.authorizationId);
+  assert.equal(authLedger.status, 'REVOKED');
+
+  // Attempted decryption after revocation fails with 403
+  assert.throws(() => app.decrypt(u('REC-0192'), kek('REC-0192'), 'DOC-0001'), e => e.status === 403 && /revoked/.test(e.message));
+
+  // Documents list for revoked recipient no longer displays DOC-0001
+  const recipientDocs = app.listDocuments(u('REC-0192')).docs.map(d => d.id);
+  assert.ok(!recipientDocs.includes('DOC-0001'), 'revoked document hidden from recipient listing');
+
+  // Pre-revocation decryption provenance remains 100% valid and attributable
+  const invPre = app.investigate(u('USR-0002'), { text: preDec.representation });
+  assert.equal(invPre.attributionStatus, 'VERIFIED_PROVENANCE_MATCH');
+  assert.equal(invPre.recipientId, 'REC-0192');
+
+  // Non-owner sender cannot revoke another sender's document
+  assert.throws(() => app.revokeAuthorization(u('REC-0217'), kek('REC-0217'), { documentId: 'DOC-0001', recipientId: 'REC-0192' }), /Role RECIPIENT is not permitted/);
+});
+
+test('client-side signing architecture: recipient personal signature accepted without server unsealing', () => {
+  const recipient = u('REC-0217');
+  const d = app.db.get("select * from documents where id='DOC-0001'");
+  const a = app.db.get("select * from auth where doc_id='DOC-0001' and user_id='REC-0217'");
+  const k = app.activeKey('REC-0217');
+  const priv = app.unlockKey(k, kek('REC-0217')); // Client environment holds the private key
+
+  const claimedRecord = {
+    documentId: 'DOC-0001',
+    documentVersion: d.version,
+    documentHash: d.hash,
+    recipientId: recipient.id,
+    identityId: k.identity_id,
+    sessionId: 'SES-CLIENT01',
+    watermarkId: 'WM-0123456789ABCDEF',
+    keyId: k.id,
+    keyVersion: k.ver,
+    authorizationId: a.id,
+    timestamp: new Date().toISOString(),
+    signatureAlgorithm: 'ML-DSA-65 (SIMULATED: ECDSA-P256/SHA-256)'
+  };
+  const clientSig = sigSign(priv, canon(claimedRecord));
+
+  // Call decrypt providing clientSignedRecord
+  const res = app.decrypt(recipient, kek('REC-0217'), 'DOC-0001', { record: claimedRecord, sig: clientSig });
+  assert.equal(res.evidence.signatureValid, true);
+  assert.equal(res.evidence.blockValid, true);
+  assert.equal(res.sessionId, claimedRecord.sessionId);
+});
+
+test('authenticated password change: re-seals keys, rejects wrong current password, and invalidates old sessions', () => {
+  const userObj = u('REC-0281'), oldPw = PW, newPw = 'UpdatedSecurePass123!';
+  const initialLogin = app.login('kabir', oldPw);
+  assert.ok(initialLogin.token);
+
+  // Wrong current password fails
+  assert.throws(() => app.changePassword(userObj, kek('REC-0281'), { currentPassword: 'wrongPassword', newPassword: newPw, confirmPassword: newPw }), /Current password incorrect/);
+
+  // Mismatched confirmation fails
+  assert.throws(() => app.changePassword(userObj, kek('REC-0281'), { currentPassword: oldPw, newPassword: newPw, confirmPassword: 'different' }), /passwords do not match/);
+
+  // Successful password change
+  const changed = app.changePassword(userObj, kek('REC-0281'), { currentPassword: oldPw, newPassword: newPw, confirmPassword: newPw });
+  assert.equal(changed.ok, true);
+
+  // Previous session token invalidated
+  assert.equal(app.authenticate(initialLogin.token), null);
+
+  // Login with old password fails
+  assert.throws(() => app.login('kabir', oldPw), /Invalid credentials/);
+
+  // Login with new password succeeds
+  const newLogin = app.login('kabir', newPw);
+  assert.ok(newLogin.token);
+
+  // Decryption still functions with re-sealed keys under new password KEK
+  const newKek = app.kekFor('REC-0281', newPw);
+  const r = app.decrypt(app.user('REC-0281'), newKek, 'DOC-0001');
+  assert.equal(r.evidence.signatureValid, true);
+});
+

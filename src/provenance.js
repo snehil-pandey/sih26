@@ -17,6 +17,10 @@ export function authorizationTx(actor, a) {
   const payload = { ...a, ts: now(), actorIdentityId: actor.identityId, actorKeyId: actor.keyId };
   return { id: rid('TX'), type: 'AUTHORIZATION', payload, sig: sigSign(actor.priv, canon(payload)) };
 }
+export function authorizationRevocationTx(actor, a) {
+  const payload = { ...a, status: 'REVOKED', revokedAt: now(), actorIdentityId: actor.identityId, actorKeyId: actor.keyId };
+  return { id: rid('TX'), type: 'AUTHORIZATION_REVOCATION', payload, sig: sigSign(actor.priv, canon(payload)) };
+}
 export const provenanceTx = (record, priv) => ({ id: rid('TX'), type: 'PROVENANCE', payload: { record }, sig: sigSign(priv, canon(record)) });
 export function statusChangeTx(actor, keyId, reason) {
   const payload = { keyId, status: 'REVOKED', effectiveAt: now(), actorIdentityId: actor.identityId, actorKeyId: actor.keyId, reason };

@@ -24,6 +24,14 @@ export function createKeystore(dir, passphrase = process.env.SIH_KEYSTORE_PASSPH
     seal: (buf, aad) => aeadEnc(master, buf, aad),
     open: (obj, aad) => aeadDec(master, obj, aad),
     hmacKey: label => c.createHmac('sha256', master).update('derive:' + label).digest(),
+    forValidator: (nodeId) => {
+      // Independent derived key isolation per validator node: compromise of one validator key does not expose others
+      const nodeKey = c.createHmac('sha256', master).update('validator-isolated-key:' + nodeId).digest();
+      return {
+        seal: (buf, aad) => aeadEnc(nodeKey, buf, aad),
+        open: (obj, aad) => aeadDec(nodeKey, obj, aad)
+      };
+    }
   };
 }
 // Volatile stand-in used ONLY for throw-away in-memory sandboxes (tests, lab clones). Provides no protection.

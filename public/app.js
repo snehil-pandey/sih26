@@ -912,7 +912,7 @@ const VIEW = {
     ${OUT?.decrypt ? `<div class="res ok"><div class="l ok">Decryption complete</div><table>${kv('Session', `<span class="m">${e(OUT.decrypt.sessionId)}</span>`)}${kv('Watermark', `<span class="m">${e(OUT.decrypt.watermarkId)}</span> <span class="mu">(invisible, simulated)</span>`)}${kv('Transaction / block', `<span class="m">${e(OUT.decrypt.transactionId)} · #${OUT.decrypt.block} · ${OUT.decrypt.approvals} approvals</span>`)}${kv('Signing key', `<span class="m">${e(OUT.decrypt.keyId)}</span>`)}</table>${evBox(OUT.decrypt.evidence)}<pre>${e(OUT.decrypt.representation)}</pre></div>` : ''}
     ${OUT?.err ? `<div class="res er"><b class="er">${e(OUT.err)}</b></div>` : ''}
     ${ME.role === 'SENDER' ? `<div class="c" id="new-doc-card"><h3>New document</h3><input id="dn" placeholder="Name" maxlength="120"> <select id="dc"><option>RESTRICTED</option><option>CONFIDENTIAL</option><option>SECRET</option></select><br><textarea id="dt" rows="4" style="width:100%;margin:8px 0" placeholder="Content"></textarea><div id="recipients-group" style="margin:4px 0">${d.recipients.map(r => `<label><input type="checkbox" class="rc" value="${e(r.id)}"> ${e(r.name)} </label>`).join('')}</div><br><button class="p" data-a="newdoc">Encrypt, authorize &amp; anchor</button></div>` : ''}
-    <div class="g2">${d.docs.map(x => `<div class="c"><div class="l wr">${e(x.cls)}</div><h3 style="font-size:16px;margin:4px 0">${e(x.name)}</h3><div class="m mu">${e(x.id)} · v${e(x.version)} · ${e(x.enc)}<br>content hash ${sh(x.hash)}</div><p>Decryptions: <b>${x.decryptions}</b></p>${R ? `<button class="p" data-a="dec" data-v="${e(x.id)}">Decrypt</button>` : `<div class="l">Authorized recipients</div>${x.authorized.map(a => `<div class="m">${e(a.id)} ${e(a.name)}</div>`).join('') || '<span class="mu">none</span>'}`}</div>`).join('') || '<div class="c mu">No documents available to this account.</div>'}</div>
+    <div class="g2">${d.docs.map(x => `<div class="c"><div class="l wr">${e(x.cls)}</div><h3 style="font-size:16px;margin:4px 0">${e(x.name)}</h3><div class="m mu">${e(x.id)} · v${e(x.version)} · ${e(x.enc)}<br>content hash ${sh(x.hash)}</div><p>Decryptions: <b>${x.decryptions}</b></p>${R ? `<button class="p" data-a="dec" data-v="${e(x.id)}">Decrypt</button>` : `<div class="l">Authorized recipients</div>${x.authorized.map(a => `<div class="m" style="display:flex;justify-content:space-between;align-items:center;margin:3px 0"><span>${e(a.id)} ${e(a.name)} <span class="tag ${a.status === 'REVOKED' ? 'er' : 'ok'}">${e(a.status)}</span></span>${a.status !== 'REVOKED' ? `<button class="s d" style="padding:2px 6px;font-size:11px" data-a="revoke-auth" data-doc="${e(x.id)}" data-rec="${e(a.id)}">Revoke access</button>` : ''}</div>`).join('') || '<span class="mu">none</span>'}`}</div>`).join('') || '<div class="c mu">No documents available to this account.</div>'}</div>
     ${R ? `<div class="c"><h3>Access test</h3><p class="mu">Try to decrypt a document by ID. The backend decides; nothing is created on refusal.</p><input id="tid" placeholder="DOC-0001" maxlength="8"> <button data-a="try">Attempt decrypt</button></div>` : ''}`;
   },
   async sess() {
@@ -1272,7 +1272,20 @@ async function draw() {
   const nav = NAV[ME.role]; if (!nav.some(n => n[0] === V)) V = 'dash';
   let body; try { body = await VIEW[V](); } catch (x) { body = `<div class="res er">${e(x.message)}</div>`; }
   const timeStr = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
-  A.innerHTML = `<aside><h1>PROVENANCE</h1>${nav.map(n => `<button class="nv ${V === n[0] ? 'on' : ''}" data-a="nav" data-v="${n[0]}">${n[1]}</button>`).join('')}</aside><main><div class="top"><span class="chip">DEMO MODE</span><span class="chip a">CRYPTO: SIMULATION</span><span class="chip" style="color:var(--tx);border-color:var(--bd-light);background:var(--pn-elevated)"><span style="display:inline-block;width:6px;height:6px;background:var(--ok);border-radius:50%;margin-right:6px;box-shadow:0 0 6px var(--ok)"></span><span id="live-clock" class="m">${timeStr}</span></span><span style="flex:1"></span><span>${e(ME.name)} <span class="mu m">${e(ME.id)} · ${e(ME.role)}</span></span><button class="s" data-a="tour-start" title="Replay Guided Walkthrough">Tour 🧭</button><button data-a="logout">Sign out</button></div>${body}</main>`;
+  A.innerHTML = `<aside><h1>PROVENANCE</h1>${nav.map(n => `<button class="nv ${V === n[0] ? 'on' : ''}" data-a="nav" data-v="${n[0]}">${n[1]}</button>`).join('')}</aside><main><div class="top"><span class="chip">DEMO MODE</span><span class="chip a">CRYPTO: SIMULATION</span><span class="chip" style="color:var(--tx);border-color:var(--bd-light);background:var(--pn-elevated)"><span style="display:inline-block;width:6px;height:6px;background:var(--ok);border-radius:50%;margin-right:6px;box-shadow:0 0 6px var(--ok)"></span><span id="live-clock" class="m">${timeStr}</span></span><span style="flex:1"></span><span>${e(ME.name)} <span class="mu m">${e(ME.id)} · ${e(ME.role)}</span></span><button class="s" data-a="show-change-pw">Key &amp; Password</button><button class="s" data-a="tour-start" title="Replay Guided Walkthrough">Tour 🧭</button><button data-a="logout">Sign out</button></div>${OUT?.showChangePw ? `
+  <div class="c" style="margin-bottom:20px;border-left:4px solid var(--ac)">
+    <div class="l" style="color:var(--ac)">Change Password &amp; Re-Seal Private Key Envelopes</div>
+    <p class="mu" style="font-size:12px;margin:4px 0 12px">Re-derives your scrypt Key Encryption Key (KEK) and re-encrypts all your signing &amp; KEM private keys under your new secret. All previous login sessions are invalidated.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+      <input type="password" id="cur-pw" placeholder="Current password" style="width:200px">
+      <input type="password" id="new-pw" placeholder="New password (min 8 chars)" style="width:220px">
+      <input type="password" id="cfm-pw" placeholder="Confirm new password" style="width:220px">
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="p s" data-a="submit-change-pw">Update &amp; Re-Seal Keys</button>
+      <button class="s" data-a="cancel-change-pw">Cancel</button>
+    </div>
+  </div>` : ''}${body}</main>`;
 
   if (TOUR_MODAL || TOUR_ACTIVE) {
     renderTour();
@@ -1904,6 +1917,20 @@ document.addEventListener('click', async ev => {
     else if (a === 'toggleuser') {
       const res = await api(`/users/${encodeURIComponent(v)}/toggle`, 'POST', {});
       toast(`User ${res.id} status updated: ${res.status}`);
+    }
+    else if (a === 'show-change-pw') { OUT = { showChangePw: true }; }
+    else if (a === 'cancel-change-pw') { OUT = { showChangePw: false }; }
+    else if (a === 'submit-change-pw') {
+      const currentPassword = $('cur-pw').value, newPassword = $('new-pw').value, confirmPassword = $('cfm-pw').value;
+      const res = await api('/auth/change-password', 'POST', { currentPassword, newPassword, confirmPassword });
+      toast(res.message);
+      OUT = null;
+      return signout();
+    }
+    else if (a === 'revoke-auth') {
+      const docId = ev.target.dataset.doc, recId = ev.target.dataset.rec;
+      await api(`/documents/${encodeURIComponent(docId)}/revoke`, 'POST', { recipientId: recId, reason: 'Revoked by authorized commander' });
+      toast(`Access revoked for ${recId} on document ${docId}`);
     }
     else if (a === 'rot') { const r = await api('/identity/rotate', 'POST', {}); toast('New key ' + r.newKey); }
     else if (a === 'rev') { await api('/identity/revoke', 'POST', { userId: v }); toast('Key revoked; the identity can no longer sign'); }

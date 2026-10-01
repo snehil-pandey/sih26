@@ -57,9 +57,21 @@ export function applyTx(st, tx, bi) {
     }
     case 'ADMIN_OPERATION': actorCheck(st, tx); if (st.keys.get(p.actorKeyId).role !== 'ADMIN') throw new Error('administrative operations require an ADMIN identity'); st.ops.push({ ...p, txId: tx.id, block: bi }); break;
     case 'AUTHORIZATION': {
-      actorCheck(st, tx); if (st.keys.get(p.actorKeyId).role !== 'SENDER') throw new Error('only a SENDER identity may issue authorizations');
+      actorCheck(st, tx); if (!['SENDER', 'ADMIN'].includes(st.keys.get(p.actorKeyId).role)) throw new Error('only a SENDER or ADMIN identity may issue authorizations');
       if (st.auths.has(p.authorizationId)) throw new Error('authorization id already recorded');
-      st.auths.set(p.authorizationId, { documentId: p.documentId, documentVersion: p.documentVersion, documentHash: p.documentHash, recipientId: p.recipientId }); break;
+      st.auths.set(p.authorizationId, { authorizationId: p.authorizationId, documentId: p.documentId, documentVersion: p.documentVersion, documentHash: p.documentHash, recipientId: p.recipientId, status: 'GRANTED', grantedAt: p.ts || now(), revokedAt: null }); break;
+    }
+    case 'AUTHORIZATION_REVOCATION': {
+      actorCheck(st, tx); if (!['SENDER', 'ADMIN'].includes(st.keys.get(p.actorKeyId).role)) throw new Error('only a SENDER or ADMIN identity may revoke authorizations');
+      const au = st.auths.get(p.authorizationId);
+      if (!au) throw new Error('authorization not found on ledger');
+      if (au.status === 'REVOKED') throw new Error('authorization already revoked');
+      if (p.documentId && au.documentId !== p.documentId) throw new Error('revocation document mismatch');
+      if (p.recipientId && au.recipientId !== p.recipientId) throw new Error('revocation recipient mismatch');
+      au.status = 'REVOKED';
+      au.revokedAt = p.revokedAt || now();
+      au.revocationReason = p.reason || 'SENDER_REVOCATION';
+      break;
     }
     case 'PROVENANCE': {
       const r = p.record; if (!r) throw new Error('missing record');
@@ -73,6 +85,7 @@ export function applyTx(st, tx, bi) {
       if (!sigVerify(k.publicKey, canon(r), tx.sig)) throw new Error('signature invalid');
       const au = st.auths.get(r.authorizationId);
       if (!au) throw new Error('authorization is not recorded on the ledger');
+      if (au.status === 'REVOKED') throw new Error('authorization grant was revoked on the ledger prior to this decryption');
       if (au.documentId !== r.documentId || au.documentVersion !== r.documentVersion || au.documentHash !== r.documentHash || au.recipientId !== r.recipientId) throw new Error('record does not match its ledger authorization');
       if (st.sessions.has(r.sessionId)) throw new Error('replayed decryption session');
       if (st.wms.has(r.watermarkId)) throw new Error('duplicate watermark id');
@@ -106,9 +119,14 @@ class Validator {
   constructor(id, file, keystore) {
     this.id = id; this.status = 'ONLINE'; this.db = openDb(file);
     this.db.exec('create table if not exists blocks(idx integer primary key, hash text, body text); create table if not exists meta(k text primary key, v text)');
+    const ks = typeof keystore.forValidator === 'function' ? keystore.forValidator(id) : keystore;
     const m = this.db.get("select v from meta where k='key'");
-    if (m) { const o = P(m.v); this.pub = o.pub; this.priv = keystore.open(o.sealed, 'validator:' + id); }
-    else { const kp = nodeKeypair(); this.pub = kp.pub; this.priv = kp.priv; this.db.run("insert into meta values('key',?)", J({ pub: kp.pub, sealed: keystore.seal(kp.priv, 'validator:' + id) })); }
+    if (m) {
+      const o = P(m.v); this.pub = o.pub;
+      try { this.priv = ks.open(o.sealed, 'validator:' + id); }
+      catch { this.priv = keystore.open(o.sealed, 'validator:' + id); } // fallback for backwards compatibility with pre-existing stores
+    }
+    else { const kp = nodeKeypair(); this.pub = kp.pub; this.priv = kp.priv; this.db.run("insert into meta values('key',?)", J({ pub: kp.pub, sealed: ks.seal(kp.priv, 'validator:' + id) })); }
   }
   blocks() { return this.db.all('select body from blocks order by idx').map(r => P(r.body)); }
   append(b) { this.db.run('insert into blocks values(?,?,?)', b.idx, b.hash, J(b)); }
