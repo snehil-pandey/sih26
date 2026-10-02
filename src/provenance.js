@@ -6,22 +6,31 @@ import { blockHash, QUORUM } from './ledger.js';
 export const identityIdFor = uid => 'CID-' + uid.slice(-4);
 export const keyIdFor = (identityId, ver) => `KEY-${identityId.slice(4)}-V${ver}`;
 
-export function keyRegistration(identityId, ver, prev, role = 'RECIPIENT', subjectId = identityId) {
-  const kp = sigKeypair();
-  const payload = { identityId, keyId: keyIdFor(identityId, ver), keyVersion: ver, algorithm: SIG_ALG, publicKey: kp.pub, role, subjectId, status: 'ACTIVE', registeredAt: now() };
-  const tx = { id: rid('TX'), type: 'PUBLIC_KEY_REGISTRATION', payload, proof: sigSign(kp.priv, canon(payload)) };
-  if (prev) tx.endorsement = sigSign(prev.priv, canon(payload));
+export function keyRegistration(identityId, ver, prev, role = 'RECIPIENT', subjectId = identityId, crypto = null) {
+  const kp = crypto ? crypto.generateSigningKeyPair() : sigKeypair();
+  const alg = crypto ? crypto.algorithmInfo().signatureAlgorithm : SIG_ALG;
+  const payload = { identityId, keyId: keyIdFor(identityId, ver), keyVersion: ver, algorithm: alg, publicKey: kp.pub, role, subjectId, status: 'ACTIVE', registeredAt: now() };
+  const signFn = (priv, data) => crypto ? crypto.sign(priv, data) : sigSign(priv, data);
+  const tx = { id: rid('TX'), type: 'PUBLIC_KEY_REGISTRATION', payload, proof: signFn(kp.priv, canon(payload)) };
+  if (prev) tx.endorsement = signFn(prev.priv, canon(payload));
   return { kp, tx, keyId: payload.keyId };
 }
-export function authorizationTx(actor, a) {
+export function authorizationTx(actor, a, crypto = null) {
   const payload = { ...a, ts: now(), actorIdentityId: actor.identityId, actorKeyId: actor.keyId };
-  return { id: rid('TX'), type: 'AUTHORIZATION', payload, sig: sigSign(actor.priv, canon(payload)) };
+  const sig = crypto ? crypto.sign(actor.priv, canon(payload)) : sigSign(actor.priv, canon(payload));
+  return { id: rid('TX'), type: 'AUTHORIZATION', payload, sig };
 }
-export function authorizationRevocationTx(actor, a) {
+export function authorizationRevocationTx(actor, a, crypto = null) {
   const payload = { ...a, status: 'REVOKED', revokedAt: now(), actorIdentityId: actor.identityId, actorKeyId: actor.keyId };
-  return { id: rid('TX'), type: 'AUTHORIZATION_REVOCATION', payload, sig: sigSign(actor.priv, canon(payload)) };
+  const sig = crypto ? crypto.sign(actor.priv, canon(payload)) : sigSign(actor.priv, canon(payload));
+  return { id: rid('TX'), type: 'AUTHORIZATION_REVOCATION', payload, sig };
 }
-export const provenanceTx = (record, priv) => ({ id: rid('TX'), type: 'PROVENANCE', payload: { record }, sig: sigSign(priv, canon(record)) });
+export const provenanceTx = (record, priv, crypto = null) => ({
+  id: rid('TX'),
+  type: 'PROVENANCE',
+  payload: { record },
+  sig: crypto ? crypto.sign(priv, canon(record)) : sigSign(priv, canon(record))
+});
 export function statusChangeTx(actor, keyId, reason) {
   const payload = { keyId, status: 'REVOKED', effectiveAt: now(), actorIdentityId: actor.identityId, actorKeyId: actor.keyId, reason };
   return { id: rid('TX'), type: 'KEY_STATUS_CHANGE', payload, sig: sigSign(actor.priv, canon(payload)) };

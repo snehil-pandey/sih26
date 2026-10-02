@@ -4,11 +4,12 @@ Legend: **Implemented** = code exists and an automated test exercises it. **Simu
 
 ---
 
-## Cryptography
+## Architecture & Cryptography
 | Item | Status | Technical Details |
 |---|---|---|
-| ML-DSA-65 signatures | **Simulated.** | ECDSA P-256/SHA-256 (classical, *not* post-quantum) behind the label `ML-DSA-65 (SIMULATED PQC ECDSA P-256 / SHA-256)`. Node 22 offers no native ML-DSA/SLH-DSA. All PQ calls sit in `src/pq.js`; swapping in a real FIPS 204 library requires changing only that one file. |
-| ML-KEM-768 key establishment | **Simulated.** | X25519 ECDH + HKDF-SHA256 wraps the content encryption key (CEK) per recipient under label `ML-KEM-768 (SIMULATED PQC X25519 + HKDF-SHA256)`. Kept strictly separate from signatures and bulk encryption (tested). |
+| Dual Mode Architecture | **Implemented.** | The application implements a single provenance engine operable in **DEMO MODE** (`APP_MODE=demo`) and **PRODUCTION MODE** (`APP_MODE=production`) behind stable provider interfaces (`CryptoProvider`, `LedgerProvider`, `WatermarkProvider`, `KeyStore`). |
+| ML-DSA-65 signatures | **Demo: Simulated / Production: Implemented (Node 24+).** | In Demo Mode, uses ECDSA P-256 / SHA-256 honestly identified as `ML-DSA-65 (SIMULATED: ECDSA-P256/SHA-256)` via `DemoCryptoProvider`. In Production Mode, `ProductionPQCProvider` directly uses NIST FIPS 204 standardized ML-DSA-65 with 3309-byte signatures. Startup validation refuses to start in Production Mode if PQC runtime support is missing. |
+| ML-KEM-768 key establishment | **Demo: Simulated / Production: Implemented (Node 24+).** | In Demo Mode, uses X25519 ECDH + HKDF-SHA256 honestly identified as `ML-KEM-768 (SIMULATED: X25519 ECDH-KEM + HKDF-SHA256)`. In Production Mode, `ProductionPQCProvider` utilizes NIST FIPS 203 standardized ML-KEM-768 via native `crypto.encapsulate` / `crypto.decapsulate`. Kept strictly separate from signatures and bulk encryption (tested). |
 | Bulk encryption | **Implemented.** | AES-256-GCM with authenticated associated data (AAD) binding to document ID and version. |
 | Validator approvals | **Implemented, classical.** | Ed25519 signatures over the canonical block hash. |
 | Recipient client-side signing | **Hardened (Prototype).** | The backend supports an explicit **client-side signing architecture**: when a client provides a pre-signed provenance record (`clientSignedRecord: { record, sig }`), the server accepts and commits the client-held signature to the ledger **without unsealing the recipient's private signing key on the server**. A backward-compatible server-unsealing fallback remains supported for clients lacking local key storage. True hardware isolation (HSM/smart-card/WebAuthn PIV) requires physical client hardware. |

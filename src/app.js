@@ -9,6 +9,7 @@ import { createKeystore, deriveKek, volatileKeystore } from './keystore.js';
 import { Network, QUORUM, NODE_IDS, verifyChain } from './ledger.js';
 import { generateWatermarkId, embedWatermark, extractWatermark, WM_RE } from './watermark.js';
 import { identityIdFor, keyRegistration, provenanceTx, statusChangeTx, adminOpTx, authorizationTx, authorizationRevocationTx, evidenceFor, keyIdFor } from './provenance.js';
+import { createProviderSuite, validateProductionEnvironment, DemoCryptoProvider, ProductionPQCProvider, DemoLedgerProvider, ProductionLedgerProvider, DemoWatermarkProvider, ProductionWatermarkProvider } from './providers/index.js';
 
 const ROLES = ['SENDER', 'RECIPIENT', 'INVESTIGATOR', 'ADMIN'];
 const CLASSES = ['RESTRICTED', 'CONFIDENTIAL', 'SECRET'];
@@ -16,7 +17,32 @@ const ID_RE = { doc: /^DOC-\d{4}$/, ses: /^SES-[0-9A-F]{8}$/, tx: /^TX-[0-9A-F]{
 const need = (ok, msg) => { if (!ok) throw ERR(400, msg); };
 const allow = (u, ...roles) => { if (!u || !roles.includes(u.role)) throw ERR(403, `Role ${u?.role} is not permitted to perform this action`); };
 
-export function createApp({ dataDir = null, demoMode = true, demoPassword = process.env.SIH_DEMO_PASSWORD || 'demo1234', sessionMinutes = 480 } = {}) {
+export function createApp({
+  dataDir = null,
+  demoMode = true,
+  mode = undefined,
+  deploymentProfile = undefined,
+  demoPassword = process.env.SIH_DEMO_PASSWORD || 'demo1234',
+  sessionMinutes = 480,
+  cryptoProvider = null,
+  watermarkProvider = null,
+  ledgerProvider = null,
+  ledgerConfig = null
+} = {}) {
+  // Determine deployment mode: explicit mode parameter or APP_MODE environment variable
+  const appMode = (mode || process.env.APP_MODE || 'demo').toLowerCase() === 'production' ? 'PRODUCTION' : 'DEMO';
+  const isDemo = appMode === 'DEMO';
+  const deployProfile = (deploymentProfile || process.env.DEPLOYMENT_PROFILE || 'local').toLowerCase() === 'hosted' ? 'HOSTED' : 'LOCAL';
+
+  // Instantiate or use injected providers
+  const suite = isDemo ? createProviderSuite({ mode: 'DEMO', dataDir: null, isVolatile: !dataDir }) : createProviderSuite({ mode: 'PRODUCTION', dataDir, ledgerConfig });
+  const activeCrypto = cryptoProvider || suite.crypto;
+  const activeWatermark = watermarkProvider || suite.watermark;
+  const activeLedgerProvider = ledgerProvider || suite.ledger;
+
+  const cryptoInfo = activeCrypto.algorithmInfo();
+  const watermarkInfo = activeWatermark.algorithmInfo();
+  const ledgerInfo = activeLedgerProvider.info();
   const mem = !dataDir;
   if (dataDir) fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
   const db = openDb(mem ? ':memory:' : path.join(dataDir, 'app.db'));
@@ -70,7 +96,47 @@ export function createApp({ dataDir = null, demoMode = true, demoPassword = proc
     op('SYSTEM', 'DEMO_RESET', 'environment seeded');
   }
 
-  // ---------------- authentication ----------------
+  // ---------------- registration & authentication ----------------
+  function register({ name, username, role = 'RECIPIENT', password }) {
+    need(typeof name === 'string' && name.trim() && name.trim().length <= 100, 'Full name required (max 100 chars)');
+    need(typeof username === 'string' && /^[a-z0-9_.-]{3,32}$/i.test(username.trim()), 'Username must be 3-32 alphanumeric characters');
+    const uName = username.trim().toLowerCase();
+    need(!db.get('select 1 from users where lower(username)=?', uName), 'Username already exists');
+    
+    // Only non-admin roles can be self-registered
+    need(['RECIPIENT', 'SENDER', 'INVESTIGATOR'].includes(role), 'Invalid registration role. Administrator accounts cannot be self-registered.');
+    need(typeof password === 'string' && password.length >= 8 && password.length <= 128, 'Password must be between 8 and 128 characters');
+
+    // Deterministic monotonic ID generation matching ID_RE.user
+    const prefix = role === 'RECIPIENT' ? 'REC' : 'USR';
+    const rows = db.all('select id from users where id like ?', prefix + '-%');
+    let maxNum = 0;
+    for (const r of rows) {
+      const m = r.id.match(/^([A-Z]{3})-(\d{4})$/);
+      if (m) {
+        const n = parseInt(m[2], 10);
+        if (n > maxNum) maxNum = n;
+      }
+    }
+    const nextNum = maxNum + 1;
+    need(nextNum <= 9999, 'User ID space exhausted for prefix');
+    const id = `${prefix}-${String(nextNum).padStart(4, '0')}`;
+
+    let tx;
+    db.tx(() => {
+      tx = makeUser({ id, name: name.trim(), username: uName, role, password });
+      net.submit([tx]);
+    });
+    op(id, 'USER_REGISTERED', `${id} (${role}) ${uName}`);
+
+    // Create immediate authenticated session for registered user
+    const u = db.get('select * from users where id=?', id);
+    const token = c.randomBytes(32).toString('hex');
+    sessions.set(sha(token), { userId: u.id, kek: deriveKek(password, u.kek_salt), exp: Date.now() + sessionMinutes * 60000 });
+    op(u.id, 'LOGIN');
+    return { token, user: { id: u.id, name: u.name, role: u.role, username: u.username }, keyId: tx.payload.keyId };
+  }
+
   function login(username, password) {
     need(typeof username === 'string' && typeof password === 'string' && username.length < 64 && password.length < 256, 'Invalid credentials');
     const recent = (fails.get(username) || []).filter(t => Date.now() - t < 600000);
@@ -281,7 +347,12 @@ export function createApp({ dataDir = null, demoMode = true, demoPassword = proc
       : 'A watermark was recovered and matched a ledger record, but one or more verification checks failed. The evidence is NOT sufficient for attribution.';
     op(u.id, ok ? 'PROVENANCE_VERIFIED' : 'TAMPER_DETECTED', id); return save();
   }
-  const listInvestigations = () => db.all('select result from inv order by rowid desc').map(x => P(x.result));
+  const listInvestigations = u => {
+    if (u && u.role !== 'ADMIN') {
+      return db.all('select result from inv where by=? order by rowid desc', u.id).map(x => P(x.result));
+    }
+    return db.all('select result from inv order by rowid desc').map(x => P(x.result));
+  };
 
   // ---------------- ledger views ----------------
   function txEvidence(txId, overrides) {
@@ -467,8 +538,28 @@ export function createApp({ dataDir = null, demoMode = true, demoPassword = proc
     return T;
   }
 
+  function environment() {
+    return {
+      mode: appMode,
+      isDemo,
+      deploymentProfile: deployProfile,
+      crypto: cryptoInfo,
+      watermark: watermarkInfo,
+      ledger: ledgerInfo
+    };
+  }
+
   if (mem || !fs.existsSync(path.join(dataDir, 'app.db')) || !db.get("select name from sqlite_master where name='users'")) seed();
-  else net = new Network(path.join(dataDir, 'validators'), ks);
-  return { db, get net() { return net; }, reset: seed, login, logout, authenticate, changePassword, makeUser, createDocument, listDocuments, decrypt, revokeAuthorization, listSessions, createLeak, listLeaks, investigate, listInvestigations, txEvidence, ledgerBlocks, ledgerKeys, validators, validateLedger,
-    rotateKey, revokeKey, identities, listUsers, createUser, toggleUserStatus, toggleValidator, resyncValidator, compromise, audit, dashboard, lab, user, demoMode, unlockKey, activeKey, demoPassword, kekFor: (id, pw) => deriveKek(pw, user(id).kek_salt) };
+  else {
+    try { db.exec("alter table auth add column status text default 'GRANTED'"); } catch {}
+    try { db.exec("alter table auth add column revoked_at"); } catch {}
+    net = new Network(path.join(dataDir, 'validators'), ks);
+  }
+  const isDemoModeGated = demoMode !== undefined ? Boolean(demoMode) : isDemo;
+  return {
+    db, get net() { return net; }, reset: seed, register, login, logout, authenticate, changePassword, makeUser, createDocument, listDocuments, decrypt, revokeAuthorization, listSessions, createLeak, listLeaks, investigate, listInvestigations, txEvidence, ledgerBlocks, ledgerKeys, validators, validateLedger,
+    rotateKey, revokeKey, identities, listUsers, createUser, toggleUserStatus, toggleValidator, resyncValidator, compromise, audit, dashboard, lab, user, demoMode: isDemoModeGated, mode: appMode, deploymentProfile: deployProfile, environment, unlockKey, activeKey, demoPassword,
+    providers: { crypto: activeCrypto, watermark: activeWatermark, ledger: activeLedgerProvider, keystore: ks },
+    kekFor: (id, pw) => deriveKek(pw, user(id).kek_salt)
+  };
 }

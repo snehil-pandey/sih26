@@ -1,27 +1,44 @@
 // Frontend: renders ONLY what the backend returns. Every verdict (VALID/INVALID, sync state, attribution) is a field of an API response.
 'use strict';
 let T = sessionStorage.getItem('t'), ME = JSON.parse(sessionStorage.getItem('me') || 'null'), V = 'dash', SEL = [], OUT = null, EV = null;
+let ENV = null;
+let FILTERS = { docText: '', docCls: '', sessDoc: '', sessUser: '', ledTxType: '', userRole: '' };
+let TARGET_HIGHLIGHT = null; // { id: 'block-2' or 'session-xxx' }
 const e = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const sh = h => h ? String(h).slice(0, 8) + '…' + String(h).slice(-6) : '—';
 const $ = id => document.getElementById(id);
 const toast = m => { const t = $('toast'); t.textContent = m; t.style.display = 'block'; clearTimeout(toast.h); toast.h = setTimeout(() => { t.style.display = 'none'; }, 5000); };
+let signingOut = false;
+function signout() {
+  if (signingOut) return;
+  signingOut = true;
+  T = null;
+  ME = null;
+  sessionStorage.clear();
+  try {
+    draw();
+  } finally {
+    signingOut = false;
+  }
+}
 async function api(p, m = 'GET', b) {
   const r = await fetch('/api' + p, { method: m, headers: { 'content-type': 'application/json', 'x-token': T || '' }, body: b === undefined ? undefined : JSON.stringify(b) });
   const j = await r.json().catch(() => ({ error: 'Bad response' }));
-  if (!r.ok) { if (r.status === 401 && ME) signout(); throw Object.assign(new Error(j.error || 'Request failed'), { status: r.status }); }
+  if (!r.ok) {
+    if (r.status === 401 && ME) signout();
+    throw Object.assign(new Error(j.error || 'Request failed'), { status: r.status });
+  }
   return j;
 }
-function signout() { T = null; ME = null; sessionStorage.clear(); draw(); }
 const tag = (ok, a = 'VALID', b = 'INVALID') => `<span class="tag ${ok ? 'ok' : 'er'}">${ok ? a : b}</span>`;
 const kv = (a, b) => `<tr><td class="l">${a}</td><td>${b}</td></tr>`;
 const NAV = {
   SENDER: [['dash', 'Command center'], ['how', 'How it works'], ['docs', 'Documents'], ['sess', 'Sessions'], ['led', 'Provenance ledger'], ['val', 'Validators'], ['aud', 'Audit']],
-  RECIPIENT: [['dash', 'Command center'], ['how', 'How it works'], ['docs', 'My documents'], ['sess', 'My sessions'], ['id', 'Cryptographic identity']],
+  RECIPIENT: [['dash', 'Command center'], ['how', 'How it works'], ['docs', 'My documents'], ['sess', 'My sessions'], ['led', 'Provenance ledger'], ['id', 'Cryptographic identity']],
   INVESTIGATOR: [['dash', 'Command center'], ['how', 'How it works'], ['inv', 'Investigations'], ['led', 'Provenance ledger'], ['val', 'Validators'], ['lab', 'Security lab'], ['aud', 'Audit']],
   ADMIN: [['dash', 'Command center'], ['how', 'How it works'], ['docs', 'Documents'], ['sess', 'Sessions'], ['led', 'Provenance ledger'], ['val', 'Validators'], ['id', 'Identities & keys'], ['lab', 'Security lab'], ['aud', 'Audit']],
 };
-const syncTag = n => `<span class="tag ${n.sync === 'IN_SYNC' ? 'ok' : n.sync === 'BEHIND' || n.sync === 'OFFLINE' ? 'wr' : 'er'}">${e(n.sync.replace('_', ' '))}</span>`;
-const evBox = x => `<table>${kv('Signature (ML-DSA-65, simulated)', tag(x.signatureValid))}${kv('Transaction', tag(x.transactionValid))}${kv('Block + approvals', tag(x.blockValid, 'VALID', 'INVALID') + ` <span class="m mu">${x.approvals} valid approvals</span>`)}${kv('Chain', tag(x.chainValid))}${kv('Validator agreement', tag(x.validatorAgreement.agreed, 'AGREED', 'NO QUORUM') + ` <span class="m mu">${x.validatorAgreement.inSync}/${x.validatorAgreement.total} in sync${x.validatorAgreement.diverged.length ? ' · diverged: ' + e(x.validatorAgreement.diverged.join(', ')) : ''}</span>`)}${x.key ? kv('Key', `<span class="m">${e(x.key.keyId)} · ${e(x.key.status)}</span>`) : ''}</table>`;
+const evBox = x => `<table>${kv(`Signature (${e(ENV?.crypto?.isPostQuantum ? ENV.crypto.signatureAlgorithm : 'Recipient Key')})`, tag(x.signatureValid))}${kv('Transaction', tag(x.transactionValid))}${kv('Block + approvals', tag(x.blockValid, 'VALID', 'INVALID') + ` <span class="m mu">${x.approvals} valid approvals</span>`)}${kv('Chain', tag(x.chainValid))}${kv('Validator agreement', tag(x.validatorAgreement.agreed, 'AGREED', 'NO QUORUM') + ` <span class="m mu">${x.validatorAgreement.inSync}/${x.validatorAgreement.total} in sync${x.validatorAgreement.diverged.length ? ' · diverged: ' + e(x.validatorAgreement.diverged.join(', ')) : ''}</span>`)}${x.key ? kv('Key', `<span class="m">${e(x.key.keyId)} · ${e(x.key.status)}</span>`) : ''}</table>`;
 let TOUR_ACTIVE = false;
 let TOUR_STEP = 0;
 let TOUR_MODAL = null; // 'welcome' | 'done' | null
@@ -849,6 +866,11 @@ const VIEW = {
   },
   async dash() {
     const d = await api('/dashboard'), vs = d.validators;
+    const canDocs = ['SENDER', 'RECIPIENT', 'ADMIN'].includes(ME.role);
+    const canSess = ['SENDER', 'RECIPIENT', 'ADMIN'].includes(ME.role);
+    const canInv = ['INVESTIGATOR', 'ADMIN'].includes(ME.role);
+    const canLed = ['SENDER', 'RECIPIENT', 'INVESTIGATOR', 'ADMIN'].includes(ME.role);
+
     return `<h2>Command center</h2><p class="sub">Continuous cryptographic consensus and operational metrics across air-gapped nodes.</p>
     <div class="c" style="border-left:4px solid ${vs.agreed && !vs.diverged.length ? 'var(--ok)' : 'var(--er)'};margin-bottom:18px"><div class="l">Distributed Ledger Integrity · Consensus Status</div><div class="n ${vs.agreed && !vs.diverged.length ? 'ok' : 'er'}" style="font-size:24px;margin-bottom:6px">${vs.agreed ? (vs.diverged.length ? 'QUORUM OK · DIVERGENCE DETECTED' : 'CONSENSUS VERIFIED · ALL VALIDATORS AGREE') : 'ALERT: NO VALIDATOR QUORUM'}</div>
     <p class="m" style="margin:4px 0">${vs.inSync}/${vs.total} validators in sync (quorum ${vs.quorum})${vs.diverged.length ? ' · <span class="er">diverged: ' + e(vs.diverged.join(', ')) + '</span>' : ''} · head <span style="color:var(--ac)">${sh(d.ledgerHead)}</span></p><p class="mu" style="margin:4px 0 0;font-size:11px">Local permissioned DLT consensus verified on-demand against independent node state.</p></div>
@@ -862,74 +884,169 @@ const VIEW = {
         <span class="tag ok">CONTINUOUS ATTESTATION</span>
       </div>
       <div class="lifecycle-pipeline-grid">
-        <div class="pipeline-stage">
+        <div class="pipeline-stage" ${canDocs ? 'data-a="nav" data-v="docs" style="cursor:pointer"' : ''}>
           <div class="pipeline-stage-idx">STAGE 01 · AES-256-GCM</div>
           <div class="pipeline-stage-name">
             <span>Documents Sealed</span>
             <span class="pipeline-stage-count">${d.documents}</span>
           </div>
-          <div class="pipeline-stage-desc">Classified briefs encrypted with single-use CEKs and bound to AAD.</div>
+          <div class="pipeline-stage-desc">Classified briefs encrypted with single-use CEKs and bound to AAD.${canDocs ? ' <span style="color:var(--ac)">Open ↗</span>' : ''}</div>
           <div class="pipeline-connector">▶</div>
         </div>
 
-        <div class="pipeline-stage">
+        <div class="pipeline-stage" ${ME.role === 'ADMIN' ? 'data-a="nav" data-v="id" style="cursor:pointer"' : ''}>
           <div class="pipeline-stage-idx">STAGE 02 · ML-KEM-768</div>
           <div class="pipeline-stage-name">
             <span>Recipient Identities</span>
             <span class="pipeline-stage-count">${d.recipients}</span>
           </div>
-          <div class="pipeline-stage-desc">Personnel with registered post-quantum key capsules on ledger.</div>
+          <div class="pipeline-stage-desc">Personnel with registered post-quantum key capsules on ledger.${ME.role === 'ADMIN' ? ' <span style="color:var(--ac)">Manage ↗</span>' : ''}</div>
           <div class="pipeline-connector">▶</div>
         </div>
 
-        <div class="pipeline-stage">
+        <div class="pipeline-stage" ${canSess ? 'data-a="nav" data-v="sess" style="cursor:pointer"' : ''}>
           <div class="pipeline-stage-idx">STAGE 03 · WATERMARKING</div>
           <div class="pipeline-stage-name">
             <span>Decryptions Executed</span>
             <span class="pipeline-stage-count">${d.sessions}</span>
           </div>
-          <div class="pipeline-stage-desc">Plaintexts recovered with unique zero-width steganographic marks.</div>
+          <div class="pipeline-stage-desc">Plaintexts recovered with unique zero-width steganographic marks.${canSess ? ' <span style="color:var(--ac)">Inspect ↗</span>' : ''}</div>
           <div class="pipeline-connector">▶</div>
         </div>
 
-        <div class="pipeline-stage">
+        <div class="pipeline-stage" ${canLed ? 'data-a="nav" data-v="led" style="cursor:pointer"' : ''}>
           <div class="pipeline-stage-idx">STAGE 04 · CANONICAL DLT</div>
           <div class="pipeline-stage-name">
             <span>Provenance Records</span>
             <span class="pipeline-stage-count">${d.provenance}</span>
           </div>
-          <div class="pipeline-stage-desc">ML-DSA-65 signed records anchored in verified blocks (${d.blocks} blocks).</div>
+          <div class="pipeline-stage-desc">ML-DSA-65 signed records anchored in verified blocks (${d.blocks} blocks).${canLed ? ' <span style="color:var(--ac)">View ↗</span>' : ''}</div>
         </div>
       </div>
     </div>
 
-    <div class="l" style="margin:16px 0 8px">Operational Metrics</div>
-    <div class="g">${[['Documents', d.documents], ['Recipients', d.recipients], ['Decryption sessions', d.sessions], ['Provenance records', d.provenance], ['Ledger blocks', d.blocks], ['Investigations', d.investigations], ['Verified attributions', d.verified]].map(([a, b]) => `<div class="c"><div class="l">${a}</div><div class="n">${b}</div></div>`).join('')}</div>`;
+    <div class="l" style="margin:16px 0 8px">Operational Metrics · Click Metric to Explore</div>
+    <div class="g">
+      <div class="c" ${canDocs ? 'data-a="nav" data-v="docs" style="cursor:pointer"' : ''}>
+        <div class="l">Documents</div>
+        <div class="n">${d.documents}</div>
+        ${canDocs ? '<span class="m mu" style="font-size:11px;color:var(--ac)">View docs ↗</span>' : ''}
+      </div>
+      <div class="c" ${ME.role === 'ADMIN' ? 'data-a="nav" data-v="id" style="cursor:pointer"' : ''}>
+        <div class="l">Recipients</div>
+        <div class="n">${d.recipients}</div>
+        ${ME.role === 'ADMIN' ? '<span class="m mu" style="font-size:11px;color:var(--ac)">Directory ↗</span>' : ''}
+      </div>
+      <div class="c" ${canSess ? 'data-a="nav" data-v="sess" style="cursor:pointer"' : ''}>
+        <div class="l">Decryption sessions</div>
+        <div class="n">${d.sessions}</div>
+        ${canSess ? '<span class="m mu" style="font-size:11px;color:var(--ac)">Sessions ↗</span>' : ''}
+      </div>
+      <div class="c" ${canLed ? 'data-a="nav" data-v="led" style="cursor:pointer"' : ''}>
+        <div class="l">Provenance records</div>
+        <div class="n">${d.provenance}</div>
+        ${canLed ? '<span class="m mu" style="font-size:11px;color:var(--ac)">Ledger ↗</span>' : ''}
+      </div>
+      <div class="c" ${canLed ? 'data-a="nav" data-v="led" style="cursor:pointer"' : ''}>
+        <div class="l">Ledger blocks</div>
+        <div class="n">${d.blocks}</div>
+        ${canLed ? '<span class="m mu" style="font-size:11px;color:var(--ac)">Blocks ↗</span>' : ''}
+      </div>
+      <div class="c" ${canInv ? 'data-a="nav" data-v="inv" style="cursor:pointer"' : ''}>
+        <div class="l">Investigations</div>
+        <div class="n">${d.investigations}</div>
+        ${canInv ? '<span class="m mu" style="font-size:11px;color:var(--ac)">Forensics ↗</span>' : ''}
+      </div>
+      <div class="c" ${canInv ? 'data-a="nav" data-v="inv" style="cursor:pointer"' : ''}>
+        <div class="l">Verified attributions</div>
+        <div class="n">${d.verified}</div>
+        ${canInv ? '<span class="m mu" style="font-size:11px;color:var(--ac)">Forensics ↗</span>' : ''}
+      </div>
+    </div>`;
   },
   async docs() {
-    const d = await api('/documents'), R = ME.role === 'RECIPIENT';
+    const d = await api('/documents'), R = ME.role === 'RECIPIENT', S = ME.role === 'SENDER';
+    let filteredDocs = d.docs;
+    if (FILTERS.docText) {
+      const q = FILTERS.docText.toLowerCase();
+      filteredDocs = filteredDocs.filter(x => x.name.toLowerCase().includes(q) || x.id.toLowerCase().includes(q));
+    }
+    if (FILTERS.docCls) {
+      filteredDocs = filteredDocs.filter(x => x.cls === FILTERS.docCls);
+    }
+
     return `<h2>${R ? 'My secure documents' : 'Documents'}</h2><p class="sub">Content is AES-256-GCM encrypted; per-recipient key establishment is ML-KEM-768 (simulated); authorizations are signed by the sender and recorded on the ledger.</p>
-    ${OUT?.decrypt ? `<div class="res ok"><div class="l ok">Decryption complete</div><table>${kv('Session', `<span class="m">${e(OUT.decrypt.sessionId)}</span>`)}${kv('Watermark', `<span class="m">${e(OUT.decrypt.watermarkId)}</span> <span class="mu">(invisible, simulated)</span>`)}${kv('Transaction / block', `<span class="m">${e(OUT.decrypt.transactionId)} · #${OUT.decrypt.block} · ${OUT.decrypt.approvals} approvals</span>`)}${kv('Signing key', `<span class="m">${e(OUT.decrypt.keyId)}</span>`)}</table>${evBox(OUT.decrypt.evidence)}<pre>${e(OUT.decrypt.representation)}</pre></div>` : ''}
-    ${OUT?.err ? `<div class="res er"><b class="er">${e(OUT.err)}</b></div>` : ''}
-    ${ME.role === 'SENDER' ? `<div class="c" id="new-doc-card"><h3>New document</h3><input id="dn" placeholder="Name" maxlength="120"> <select id="dc"><option>RESTRICTED</option><option>CONFIDENTIAL</option><option>SECRET</option></select><br><textarea id="dt" rows="4" style="width:100%;margin:8px 0" placeholder="Content"></textarea><div id="recipients-group" style="margin:4px 0">${d.recipients.map(r => `<label><input type="checkbox" class="rc" value="${e(r.id)}"> ${e(r.name)} </label>`).join('')}</div><br><button class="p" data-a="newdoc">Encrypt, authorize &amp; anchor</button></div>` : ''}
-    <div class="g2">${d.docs.map(x => `<div class="c"><div class="l wr">${e(x.cls)}</div><h3 style="font-size:16px;margin:4px 0">${e(x.name)}</h3><div class="m mu">${e(x.id)} · v${e(x.version)} · ${e(x.enc)}<br>content hash ${sh(x.hash)}</div><p>Decryptions: <b>${x.decryptions}</b></p>${R ? `<button class="p" data-a="dec" data-v="${e(x.id)}">Decrypt</button>` : `<div class="l">Authorized recipients</div>${x.authorized.map(a => `<div class="m" style="display:flex;justify-content:space-between;align-items:center;margin:3px 0"><span>${e(a.id)} ${e(a.name)} <span class="tag ${a.status === 'REVOKED' ? 'er' : 'ok'}">${e(a.status)}</span></span>${a.status !== 'REVOKED' ? `<button class="s d" style="padding:2px 6px;font-size:11px" data-a="revoke-auth" data-doc="${e(x.id)}" data-rec="${e(a.id)}">Revoke access</button>` : ''}</div>`).join('') || '<span class="mu">none</span>'}`}</div>`).join('') || '<div class="c mu">No documents available to this account.</div>'}</div>
-    ${R ? `<div class="c"><h3>Access test</h3><p class="mu">Try to decrypt a document by ID. The backend decides; nothing is created on refusal.</p><input id="tid" placeholder="DOC-0001" maxlength="8"> <button data-a="try">Attempt decrypt</button></div>` : ''}`;
+    ${OUT?.decrypt ? `<div class="res ok" id="decrypted-result-box"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div class="l ok" style="margin:0">Decryption complete · Plaintext Recovered</div><div style="display:flex;gap:6px;flex-wrap:wrap"><button class="p s" data-a="goto-ledger-block" data-block="${OUT.decrypt.block}" data-tx="${e(OUT.decrypt.transactionId)}">🔗 View Provenance on Ledger (#${OUT.decrypt.block})</button><button class="s" data-a="copy-dec">📋 Copy Plaintext</button><button class="s" data-a="clear-dec">✕ Close Preview</button></div></div><table>${kv('Session', `<span class="m">${e(OUT.decrypt.sessionId)}</span>`)}${kv('Watermark', `<span class="m">${e(OUT.decrypt.watermarkId)}</span> <span class="mu">(invisible zero-width mark embedded)</span>`)}${kv('Transaction / block', `<span class="m">${e(OUT.decrypt.transactionId)} · #${OUT.decrypt.block} · ${OUT.decrypt.approvals} approvals</span>`)}${kv('Signing key', `<span class="m">${e(OUT.decrypt.keyId)}</span>`)}</table>${evBox(OUT.decrypt.evidence)}<pre id="decrypted-plaintext">${e(OUT.decrypt.representation)}</pre></div>` : ''}
+    ${OUT?.err ? `<div class="res er"><b class="er">${e(OUT.err)}</b><button class="s" data-a="clear-dec" style="margin-left:12px;font-size:11px">Dismiss</button></div>` : ''}
+    ${S ? `<div class="c" id="new-doc-card"><h3>Author new classified brief</h3><p class="mu" style="font-size:12px;margin:2px 0 10px">Seals payload locally with AES-256-GCM and anchors ML-KEM-768 key capsules on the consensus ledger.</p><input id="dn" placeholder="Document title / brief name" maxlength="120" style="width:280px"> <select id="dc"><option>RESTRICTED</option><option>CONFIDENTIAL</option><option>SECRET</option></select><br><textarea id="dt" rows="4" style="width:100%;margin:8px 0" placeholder="Classified content to encrypt..."></textarea><div class="l" style="margin:6px 0 2px">Authorized Recipients (ML-KEM-768 Encap)</div><div id="recipients-group" style="margin:4px 0">${d.recipients.length ? d.recipients.map(r => `<label style="margin-right:12px"><input type="checkbox" class="rc" value="${e(r.id)}"> ${e(r.name)} <span class="m mu">(${e(r.id)})</span></label>`).join('') : '<span class="mu">No registered recipient identities available in directory.</span>'}</div><br><button class="p" data-a="newdoc">Encrypt, authorize &amp; anchor</button></div>` : ''}
+
+    <div class="filter-bar">
+      <input type="text" id="doc-search" placeholder="Search by document name or ID..." value="${e(FILTERS.docText)}" style="width:240px">
+      <select id="doc-cls-filter">
+        <option value="">All Classifications</option>
+        <option value="RESTRICTED" ${FILTERS.docCls === 'RESTRICTED' ? 'selected' : ''}>RESTRICTED</option>
+        <option value="CONFIDENTIAL" ${FILTERS.docCls === 'CONFIDENTIAL' ? 'selected' : ''}>CONFIDENTIAL</option>
+        <option value="SECRET" ${FILTERS.docCls === 'SECRET' ? 'selected' : ''}>SECRET</option>
+      </select>
+      ${(FILTERS.docText || FILTERS.docCls) ? `<button class="s" data-a="clear-doc-filter">Clear filter (${filteredDocs.length}/${d.docs.length})</button>` : ''}
+    </div>
+
+    <div class="g2">${filteredDocs.map(x => `<div class="c" id="doc-${e(x.id)}"><div class="l wr">${e(x.cls)}</div><h3 style="font-size:16px;margin:4px 0">${e(x.name)}</h3><div class="m mu">${e(x.id)} · v${e(x.version)} · ${e(x.enc)}<br>content hash ${sh(x.hash)}</div><p>Decryptions: <b>${x.decryptions}</b> ${(!R && x.decryptions > 0) ? `<button class="s" style="padding:2px 7px;font-size:11px;margin-left:8px" data-a="filter-sess-by-doc" data-v="${e(x.id)}">View ${x.decryptions} Session${x.decryptions > 1 ? 's' : ''} ↗</button>` : ''}</p>${R ? `<button class="p" data-a="dec" data-v="${e(x.id)}">Decrypt Document</button>` : `<div class="l" style="margin-top:10px">Authorized recipients</div>${x.authorized.map(a => `<div class="m" style="display:flex;justify-content:space-between;align-items:center;margin:3px 0"><span>${e(a.id)} ${e(a.name)} <span class="tag ${a.status === 'REVOKED' ? 'er' : 'ok'}">${e(a.status)}</span></span>${a.status !== 'REVOKED' ? `<button class="s d" style="padding:2px 6px;font-size:11px" data-a="revoke-auth" data-doc="${e(x.id)}" data-rec="${e(a.id)}">Revoke access</button>` : ''}</div>`).join('') || '<span class="mu">No authorized recipients</span>'}`}</div>`).join('') || `<div class="c" style="grid-column:1/-1;text-align:center;padding:32px 16px"><div class="l" style="color:var(--mu);margin-bottom:6px">NO DOCUMENTS FOUND</div><p style="margin:0 auto 12px;max-width:420px;color:var(--mu)">${(FILTERS.docText || FILTERS.docCls) ? 'No documents match the current search filter.' : (R ? 'No operational briefs have been authorized for your identity yet.' : 'No classified briefs created yet.')}</p></div>`}</div>
+    ${R ? `<div class="c" style="margin-top:16px"><h3>Enclave Access Test</h3><p class="mu">Attempt to decrypt a document by its monotonic ID. Access is verified against ledger authorization records; unauthorized attempts create no session or watermark trace.</p><input id="tid" placeholder="DOC-0001" maxlength="8"> <button data-a="try">Attempt decrypt</button></div>` : ''}`;
   },
   async sess() {
-    const s = await api('/sessions'), sel = SEL.map(i => s.find(x => x.id === i)).filter(Boolean);
-    return `<h2>Decryption sessions</h2><p class="sub">Tick two to compare. Each decryption has its own session, watermark and signed ledger record.</p>
-    <div class="c wrapx"><table><tr><th></th><th>Session</th><th>Recipient</th><th>Doc</th><th>Watermark</th><th>Tx</th><th>Block</th><th></th></tr>${s.map(x => `<tr><td><input type="checkbox" data-a="sel" data-v="${e(x.id)}" ${SEL.includes(x.id) ? 'checked' : ''}></td><td class="m">${e(x.id)}</td><td>${e(x.name)}</td><td class="m">${e(x.doc_id)}</td><td class="m">${e(x.wm)}</td><td class="m">${e(x.txid)}</td><td>#${x.block}</td><td>${ME.role === 'INVESTIGATOR' ? '' : `<button class="s" data-a="leak" data-v="${e(x.id)}">Simulate leak</button>`}</td></tr>`).join('')}</table></div>
-    ${sel.length === 2 ? `<div class="c"><div class="l">Comparison</div><table>${['name', 'id', 'wm', 'txid', 'ts'].map(k => `<tr><td class="mu">${k}</td><td class="m">${e(sel[0][k])}</td><td class="m">${e(sel[1][k])}</td><td>${sel[0][k] === sel[1][k] ? '<span class="wr">same</span>' : '<span class="ok">differs</span>'}</td></tr>`).join('')}</table></div>` : ''}`;
+    const s = await api('/sessions');
+    let filteredSess = s;
+    if (FILTERS.sessDoc) {
+      filteredSess = filteredSess.filter(x => x.doc_id === FILTERS.sessDoc);
+    }
+    if (FILTERS.sessUser) {
+      const q = FILTERS.sessUser.toLowerCase();
+      filteredSess = filteredSess.filter(x => x.name.toLowerCase().includes(q) || x.user_id.toLowerCase().includes(q));
+    }
+    const sel = SEL.map(i => s.find(x => x.id === i)).filter(Boolean);
+
+    return `<h2>Decryption sessions</h2><p class="sub">Audits decryption events and unique steganographic watermarks. Select two sessions to compare watermarks side-by-side.</p>
+    
+    <div class="filter-bar">
+      <input type="text" id="sess-user-filter" placeholder="Filter by recipient name or ID..." value="${e(FILTERS.sessUser)}" style="width:240px">
+      ${FILTERS.sessDoc ? `<div class="filter-chip">Document: <b>${e(FILTERS.sessDoc)}</b> <button class="s" style="padding:0 4px;font-size:10px" data-a="clear-sess-doc-filter">✕</button></div>` : ''}
+      ${(FILTERS.sessDoc || FILTERS.sessUser) ? `<button class="s" data-a="clear-sess-filter">Clear filter (${filteredSess.length}/${s.length})</button>` : ''}
+    </div>
+
+    <div class="c wrapx"><table><tr><th></th><th>Session</th><th>Recipient</th><th>Doc</th><th>Watermark</th><th>Tx</th><th>Block</th><th>Actions</th></tr>${filteredSess.map(x => `<tr id="sess-${e(x.id)}"><td><input type="checkbox" data-a="sel" data-v="${e(x.id)}" ${SEL.includes(x.id) ? 'checked' : ''}></td><td class="m">${e(x.id)}</td><td>${e(x.name)} <span class="mu">(${e(x.user_id)})</span></td><td class="m">${e(x.doc_id)}</td><td class="m">${e(x.wm)}</td><td class="m">${e(x.txid)}</td><td>#${x.block}</td><td><button class="s" data-a="goto-ledger-block" data-block="${x.block}" data-tx="${e(x.txid)}" style="margin-right:6px">Ledger ↗</button>${ME.role === 'INVESTIGATOR' ? '<span class="mu">—</span>' : `<button class="s" data-a="leak" data-v="${e(x.id)}">Simulate leak</button>`}</td></tr>`).join('')}</table>${!filteredSess.length ? `<div style="text-align:center;padding:24px;color:var(--mu)">No decryption sessions match filter.</div>` : ''}</div>
+    ${sel.length === 2 ? `<div class="c" style="border-left:4px solid var(--ac)"><div class="l" style="color:var(--ac)">Steganographic &amp; Cryptographic Comparison</div><p class="mu" style="font-size:12px;margin:2px 0 8px">Comparing two decryption events demonstrates that each recipient receives an identical visible briefing with distinct watermark IDs and distinct signed provenance records.</p><table>${['name', 'id', 'wm', 'txid', 'ts'].map(k => `<tr><td class="mu">${k}</td><td class="m">${e(sel[0][k])}</td><td class="m">${e(sel[1][k])}</td><td>${sel[0][k] === sel[1][k] ? '<span class="wr">same</span>' : '<span class="ok">differs (isolated)</span>'}</td></tr>`).join('')}</table></div>` : ''}`;
   },
   async led() {
     const [b, k] = await Promise.all([api('/ledger/blocks'), api('/ledger/keys')]);
+    let blocks = b.blocks;
+    if (FILTERS.ledTxType) {
+      blocks = blocks.filter(blk => blk.txs.some(t => t.type === FILTERS.ledTxType));
+    }
+
     return `<h2>Provenance ledger</h2><p class="sub">Local permissioned DLT simulator · simulated permissioned consensus (not BFT). Blocks below are from the verified majority chain.</p>
     ${OUT?.validate ? `<div class="res ${OUT.validate.ok ? 'ok' : 'er'}"><b>${OUT.validate.ok ? 'ALL VALIDATORS AGREE' : 'PROBLEM DETECTED'}</b><div class="m">height ${OUT.validate.height} · ${OUT.validate.inSync}/${OUT.validate.total} in sync${OUT.validate.nodes.filter(n => n.reason).map(n => `<br>${e(n.id)}: ${e(n.reason)}`).join('')}</div></div>` : ''}
     ${OUT?.verify ? `<div class="res ${OUT.verify.signatureValid ? 'ok' : 'er'}"><b>${OUT.verify.signatureValid ? 'SIGNATURE VALID' : 'SIGNATURE INVALID — PROVENANCE REJECTED'}</b>${OUT.verify.changed.length ? `<div class="m">presented record differs in: ${e(OUT.verify.changed.join(', '))}</div>` : ''}</div>` : ''}
-    <p><button class="p" data-a="validate">Validate all validators</button></p>
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:12px">
+      <button class="p" data-a="validate">Validate all validators</button>
+      <div class="filter-bar" style="margin:0">
+        <select id="led-type-filter">
+          <option value="">All Transaction Types</option>
+          <option value="PROVENANCE" ${FILTERS.ledTxType === 'PROVENANCE' ? 'selected' : ''}>PROVENANCE</option>
+          <option value="AUTHORIZATION" ${FILTERS.ledTxType === 'AUTHORIZATION' ? 'selected' : ''}>AUTHORIZATION</option>
+          <option value="AUTHORIZATION_REVOCATION" ${FILTERS.ledTxType === 'AUTHORIZATION_REVOCATION' ? 'selected' : ''}>AUTHORIZATION_REVOCATION</option>
+          <option value="KEY_REGISTRATION" ${FILTERS.ledTxType === 'KEY_REGISTRATION' ? 'selected' : ''}>KEY_REGISTRATION</option>
+          <option value="ADMIN_OPERATION" ${FILTERS.ledTxType === 'ADMIN_OPERATION' ? 'selected' : ''}>ADMIN_OPERATION</option>
+        </select>
+        ${FILTERS.ledTxType ? `<button class="s" data-a="clear-led-filter">Clear filter</button>` : ''}
+      </div>
+    </div>
+
     <div class="c wrapx"><div class="l">Public-key registry (from ledger)</div><table><tr><th>Key</th><th>Identity</th><th>Ver</th><th>Status</th><th>Algorithm</th></tr>${k.map(x => `<tr><td class="m">${e(x.keyId)}</td><td class="m">${e(x.identityId)}</td><td>${x.keyVersion}</td><td class="${x.status === 'ACTIVE' ? 'ok' : x.status === 'REVOKED' ? 'er' : 'wr'}">${e(x.status)}</td><td class="m mu">${e(x.algorithm)}</td></tr>`).join('')}</table></div>
-    ${b.blocks.map(x => `<div class="c"><b>BLOCK #${x.idx}</b> <span class="m mu">${e(x.ts)} · approvals ${x.approvals.length} (${e(x.approvals.join(' '))})</span><div class="m mu">prev ${sh(x.prev)} → hash ${sh(x.hash)}</div>${x.txs.map(t => `<div style="border-top:1px solid var(--bd);margin-top:8px;padding-top:8px" class="m"><span class="tag ac">${e(t.type)}</span> ${e(t.id)}<br>${t.type === 'PROVENANCE' ? `doc ${e(t.payload.documentId)} · recipient <b>${e(t.payload.recipientId)}</b> · ${e(t.payload.sessionId)} · ${e(t.payload.watermarkId)}<br>key ${e(t.payload.keyId)} · ${e(t.payload.signatureAlgorithm)}` : e(JSON.stringify(t.payload)).slice(0, 220)}
-    ${t.type === 'PROVENANCE' && ME.role !== 'RECIPIENT' ? `<br><button class="s" data-a="vsig" data-v="${e(t.id)}">Verify signature</button> <button class="s" data-a="vmod" data-v="${e(t.id)}">Verify with recipient → REC-0217</button>` : ''}</div>`).join('')}</div>`).join('')}`;
+
+    <div class="l" style="margin:16px 0 8px">Canonical Blocks on Majority Chain</div>
+    ${blocks.map(x => `<div class="c ${TARGET_HIGHLIGHT && TARGET_HIGHLIGHT.block === x.idx ? 'target-highlight' : ''}" id="ledger-block-${x.idx}"><b>BLOCK #${x.idx}</b> <span class="m mu">${e(x.ts)} · approvals ${x.approvals.length} (${e(x.approvals.join(' '))})</span><div class="m mu">prev ${sh(x.prev)} → hash ${sh(x.hash)}</div>${x.txs.map(t => `<div style="border-top:1px solid var(--bd);margin-top:8px;padding-top:8px" class="m ${TARGET_HIGHLIGHT && TARGET_HIGHLIGHT.tx === t.id ? 'target-highlight' : ''}" id="tx-${e(t.id)}"><span class="tag ac">${e(t.type)}</span> <b>${e(t.id)}</b><br>${t.type === 'PROVENANCE' ? `doc ${e(t.payload.documentId)} · recipient <b>${e(t.payload.recipientId)}</b> · session <b>${e(t.payload.sessionId)}</b> · watermark <b>${e(t.payload.watermarkId)}</b><br>key ${e(t.payload.keyId)} · ${e(t.payload.signatureAlgorithm)}` : e(JSON.stringify(t.payload)).slice(0, 220)}
+    ${t.type === 'PROVENANCE' && ME.role !== 'RECIPIENT' ? `<br><button class="s" data-a="vsig" data-v="${e(t.id)}" style="margin-top:4px">Verify signature</button> <button class="s" data-a="vmod" data-v="${e(t.id)}" style="margin-top:4px">Verify with recipient → REC-0217</button>` : ''}</div>`).join('')}</div>`).join('') || '<div class="c mu">No blocks match the selected transaction filter.</div>'}`;
   },
   async val() {
     const v = await api('/validators'), A = ME.role === 'ADMIN';
@@ -941,15 +1058,47 @@ const VIEW = {
   async inv() {
     const [l, i] = await Promise.all([api('/leaks'), api('/investigations')]), r = OUT?.inv;
     return `<h2>Forensic investigation</h2><p class="sub">You supply only an artefact. The watermark is extracted, resolved on the ledger, and verified — you never pick a recipient.</p>
-    <div class="c"><div class="l">Leaked artefacts</div>${l.map(x => `<div class="m" style="margin:6px 0">${e(x.id)} · ${e(x.ts)} · ${x.bytes} chars <button class="p s" data-a="run" data-v="${e(x.id)}">Run investigation</button></div>`).join('') || '<span class="mu">None yet. A recipient or sender can simulate a leak from a session.</span>'}<hr style="border-color:var(--bd)"><div class="l">Or analyse a text file</div><input type="file" id="f" accept=".txt,text/plain"> <button data-a="upl">Analyse file</button></div>
-    ${r ? `<div class="res ${r.attributionStatus === 'VERIFIED_PROVENANCE_MATCH' ? 'ok' : r.attributionStatus === 'NO_ATTRIBUTION' ? 'wr' : 'er'}"><div class="l">${e(r.id)} · ${e(r.label)}</div><div class="n" style="font-size:22px">${e(r.attributionStatus.replace(/_/g, ' '))}</div><p>${e(r.statement)}</p>
+    <div class="c" style="margin-bottom:20px">
+      <div class="l">Ingest Leaked Evidence Artefact</div>
+      <p class="mu" style="font-size:12px;margin:2px 0 12px">Supply leaked text from any source. The system performs unbiased steganographic decoding, ledger querying, and cryptographic attestation.</p>
+      
+      <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));gap:16px">
+        <!-- Direct Text Paste Input -->
+        <div style="background:var(--pn-elevated);padding:14px;border-radius:4px;border:1px solid var(--bd)">
+          <div class="l" style="margin-bottom:6px">Option 1: Paste Text Artefact</div>
+          <input id="inv-label" placeholder="Evidence label (e.g. pastebin-leak-01)" maxlength="80" style="width:100%;margin-bottom:8px">
+          <textarea id="inv-text" rows="4" style="width:100%;margin-bottom:8px" placeholder="Paste suspected leaked text containing zero-width marks..."></textarea>
+          <button class="p s" data-a="paste-inv" style="width:100%">Analyse Pasted Text</button>
+        </div>
+
+        <!-- File Upload -->
+        <div style="background:var(--pn-elevated);padding:14px;border-radius:4px;border:1px solid var(--bd)">
+          <div class="l" style="margin-bottom:6px">Option 2: Upload File</div>
+          <p class="mu" style="font-size:11.5px;margin:0 0 10px">Upload an intercepted `.txt` document file (up to 500 KB).</p>
+          <input type="file" id="f" accept=".txt,text/plain" style="margin-bottom:10px;width:100%">
+          <button class="s" data-a="upl" style="width:100%">Analyse Uploaded File</button>
+        </div>
+      </div>
+
+      <!-- Simulated Leaks Catalog -->
+      <hr style="border-color:var(--bd);margin:16px 0">
+      <div class="l" style="margin-bottom:6px">Option 3: Select Simulated Leak from System Sessions</div>
+      ${l.map(x => `<div class="m" style="display:flex;justify-content:space-between;align-items:center;background:var(--bg);padding:6px 10px;border-radius:3px;margin:4px 0"><span><b>${e(x.id)}</b> · ${e(x.ts)} · <span class="mu">${x.bytes} chars</span></span><button class="p s" data-a="run" data-v="${e(x.id)}">Investigate</button></div>`).join('') || '<span class="mu">No simulated leaks active. A recipient or sender can simulate a leak from the Sessions tab.</span>'}
+    </div>
+
+    ${r ? `<div class="res ${r.attributionStatus === 'VERIFIED_PROVENANCE_MATCH' ? 'ok' : r.attributionStatus === 'NO_ATTRIBUTION' ? 'wr' : 'er'}"><div style="display:flex;justify-content:space-between;align-items:center"><div class="l">${e(r.id)} · ${e(r.label)}</div><div style="display:flex;gap:8px;align-items:center">${r.extractionStatus ? `<span class="tag ${r.extractionStatus === 'WATERMARK_FOUND' ? 'ok' : 'wr'}">${e(r.extractionStatus)}</span>` : ''}${r.blockId !== null ? `<button class="p s" data-a="goto-ledger-block" data-block="${r.blockId}" data-tx="${e(r.transactionId)}">🔗 Inspect on Ledger (#${r.blockId})</button>` : ''}</div></div><div class="n" style="font-size:22px">${e(r.attributionStatus.replace(/_/g, ' '))}</div><p>${e(r.statement)}</p>
     <div>${r.steps.map(s => `<div class="st">${s.ok ? '<span class="ok">✓</span>' : '<span class="er">✗</span>'} <span>${e(s.name)} <span class="m mu">${e(s.detail)}</span></span></div>`).join('')}</div>
     ${r.provenanceFound ? `<div class="ch">${[['Leaked artefact', r.label, 'a'], ['Watermark', r.watermarkId, 'w'], ['Ledger transaction', r.transactionId, 't'], ['Block', '#' + r.blockId, 'b'], ['Session', r.sessionId, 's'], ['Recipient', r.recipientId + ' ' + r.recipientName, 'r'], ['Historical public key', r.keyId + ' v' + r.keyVersion, 'k'], ['Signature', r.signatureValid ? 'VALID' : 'INVALID', 'g'], ['Chain + validators', r.ledgerValid ? 'VALID' : 'INVALID', 'h']].map(([a, b, k], x) => `${x ? '<div class="ln"></div>' : ''}<div class="c" data-a="ev" data-v="${k}"><div class="l">${a}</div><div class="m ${b === 'INVALID' ? 'er' : b === 'VALID' ? 'ok' : ''}">${e(b)}</div></div>`).join('')}</div><pre id="evd">Click a node in the chain to inspect its evidence.</pre>` : ''}</div>` : ''}
-    <div class="c wrapx"><div class="l">Investigation history (persisted)</div><table>${i.map(x => `<tr><td class="m">${e(x.id)}</td><td class="m">${x.watermarkRecovered ? e(x.watermarkId) : 'no watermark'}</td><td>${e(x.attributionStatus.replace(/_/g, ' '))}</td><td class="m mu">${e(x.ts)}</td></tr>`).join('')}</table></div>`;
+    <div class="c wrapx"><div class="l">Investigation history (persisted)</div><table><tr><th>ID</th><th>Watermark Status</th><th>Attribution Verdict</th><th>Investigated At</th></tr>${i.map(x => `<tr><td class="m">${e(x.id)}</td><td class="m">${x.watermarkRecovered ? e(x.watermarkId) : (x.extractionStatus || 'no watermark')}</td><td><span class="tag ${x.attributionStatus === 'VERIFIED_PROVENANCE_MATCH' ? 'ok' : x.attributionStatus === 'NO_ATTRIBUTION' ? 'wr' : 'er'}">${e(x.attributionStatus.replace(/_/g, ' '))}</span></td><td class="m mu">${e(x.ts)}</td></tr>`).join('')}</table></div>`;
   },
   async id() {
     const k = await api('/identities'), A = ME.role === 'ADMIN';
     const users = A ? await api('/users') : null;
+    let filteredUsers = users;
+    if (A && users && FILTERS.userRole) {
+      filteredUsers = filteredUsers.filter(u => u.role === FILTERS.userRole);
+    }
+
     return `<h2>Cryptographic identities &amp; access control</h2><p class="sub">Signing: ML-DSA-65 (simulated). Key establishment: ML-KEM-768 (simulated). Private keys are sealed and never returned by the API.</p>
 
     ${A && users ? `
@@ -993,11 +1142,22 @@ const VIEW = {
       </div>
     </div>
 
+    <div class="filter-bar">
+      <select id="user-role-filter">
+        <option value="">All Roles</option>
+        <option value="RECIPIENT" ${FILTERS.userRole === 'RECIPIENT' ? 'selected' : ''}>RECIPIENT</option>
+        <option value="SENDER" ${FILTERS.userRole === 'SENDER' ? 'selected' : ''}>SENDER</option>
+        <option value="INVESTIGATOR" ${FILTERS.userRole === 'INVESTIGATOR' ? 'selected' : ''}>INVESTIGATOR</option>
+        <option value="ADMIN" ${FILTERS.userRole === 'ADMIN' ? 'selected' : ''}>ADMIN</option>
+      </select>
+      ${FILTERS.userRole ? `<button class="s" data-a="clear-user-filter">Clear filter (${filteredUsers.length}/${users.length})</button>` : ''}
+    </div>
+
     <div class="c wrapx" style="margin-bottom:28px">
       <div class="l">System User Directory</div>
       <table>
         <tr><th>User ID</th><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Provisioned</th><th>Actions</th></tr>
-        ${users.map(u => `
+        ${filteredUsers.map(u => `
           <tr>
             <td class="m">${e(u.id)}</td>
             <td><b>${e(u.name)}</b></td>
@@ -1251,28 +1411,68 @@ async function draw() {
     ];
     A.innerHTML = `<div class="login">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
-        <div class="l" style="color:var(--ac);margin:0">SIH26237 · PROTOTYPE</div>
+        <div class="l" style="color:var(--ac);margin:0">SIH26237 · CRYPTOGRAPHIC PROVENANCE</div>
         <button type="button" class="s" data-a="pub-how" style="color:var(--ac);border-color:var(--ac-border)">How It Works ▶</button>
       </div>
       <h2>PROVENANCE</h2>
-      <p class="sub">Secure document attribution system</p>
-      <input id="u" placeholder="username" autocomplete="username" value="sender">
-      <input id="p" type="password" placeholder="password" autocomplete="current-password" value="demo1234">
-      <button class="p" data-a="login" style="width:100%;margin-top:6px">Authenticate</button>
-      <div class="l" style="margin:16px 0 6px">Quick login presets</div>
-      <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px">
-        ${PRESETS.map(([u, lbl]) => `<button type="button" class="s" data-a="fill" data-v="${e(u)}" title="${e(lbl)}">${e(u)}</button>`).join('')}
+      <p class="sub">Decryption Attribution &amp; Forensic Integrity</p>
+
+      <div style="display:flex;gap:8px;margin-bottom:14px;border-bottom:1px solid var(--bd-light);padding-bottom:10px">
+        <button type="button" class="${PUB_VIEW === 'register' ? 's' : 'p'}" data-a="switch-auth-tab" data-v="login" style="flex:1">Sign In</button>
+        <button type="button" class="${PUB_VIEW === 'register' ? 'p' : 's'}" data-a="switch-auth-tab" data-v="register" style="flex:1">Register Account</button>
       </div>
-      <button data-a="reset" style="width:100%">Reset demo environment</button>
+
+      ${PUB_VIEW === 'register' ? `
+        <div class="l" style="margin-bottom:6px">Register New Personnel Identity</div>
+        <input id="reg-name" placeholder="Full Name (e.g. Elena Rostova)" autocomplete="name">
+        <input id="reg-username" placeholder="Username (e.g. elena)" autocomplete="username">
+        <select id="reg-role" style="width:100%;margin-bottom:10px;padding:8px;background:var(--pn-elevated);color:var(--tx);border:1px solid var(--bd-light);border-radius:4px">
+          <option value="RECIPIENT">RECIPIENT (Authorized to Decrypt)</option>
+          <option value="SENDER">SENDER (Classified Brief Author)</option>
+          <option value="INVESTIGATOR">INVESTIGATOR (Forensic Analysis)</option>
+        </select>
+        <input id="reg-password" type="password" placeholder="Password (min 8 chars)" autocomplete="new-password">
+        <input id="reg-confirm" type="password" placeholder="Confirm Password" autocomplete="new-password">
+        <button class="p" data-a="register" style="width:100%;margin-top:6px">Register &amp; Generate Identity</button>
+        <p class="mu" style="font-size:11px;margin-top:10px;line-height:1.4">Generates your cryptographic identity, registers public keys on the permissioned ledger, and establishes your private KEK envelope.</p>
+      ` : `
+        <input id="u" placeholder="username" autocomplete="username" value="sender">
+        <input id="p" type="password" placeholder="password" autocomplete="current-password" value="demo1234">
+        <button class="p" data-a="login" style="width:100%;margin-top:6px">Authenticate</button>
+        <div class="l" style="margin:16px 0 6px">Quick login presets</div>
+        <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px">
+          ${PRESETS.map(([u, lbl]) => `<button type="button" class="s" data-a="fill" data-v="${e(u)}" title="${e(lbl)}">${e(u)}</button>`).join('')}
+        </div>
+        <button data-a="reset" style="width:100%">Reset demo environment</button>
+      `}
     </div>`;
     return;
   }
 
   // --- AUTHENTICATED EXPERIENCE ---
+  if (!ME || !ME.role || !NAV[ME.role]) {
+    if (ME) signout();
+    return;
+  }
   const nav = NAV[ME.role]; if (!nav.some(n => n[0] === V)) V = 'dash';
-  let body; try { body = await VIEW[V](); } catch (x) { body = `<div class="res er">${e(x.message)}</div>`; }
+  if (!ENV) {
+    try { ENV = await api('/environment'); } catch { ENV = { mode: 'DEMO', isDemo: true, deploymentProfile: 'LOCAL', crypto: { signatureAlgorithm: 'ECDSA P-256 (Development)', kemAlgorithm: 'Demo Provider' }, ledger: { provider: 'Local Permissioned DLT' } }; }
+  }
+  let body;
+  try {
+    body = await VIEW[V]();
+  } catch (x) {
+    body = `<div class="res er">${e(x.message)}</div>`;
+  }
+  if (!ME) return; // If 401 occurred inside VIEW[V](), signout() already triggered draw() for login view
   const timeStr = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
-  A.innerHTML = `<aside><h1>PROVENANCE</h1>${nav.map(n => `<button class="nv ${V === n[0] ? 'on' : ''}" data-a="nav" data-v="${n[0]}">${n[1]}</button>`).join('')}</aside><main><div class="top"><span class="chip">DEMO MODE</span><span class="chip a">CRYPTO: SIMULATION</span><span class="chip" style="color:var(--tx);border-color:var(--bd-light);background:var(--pn-elevated)"><span style="display:inline-block;width:6px;height:6px;background:var(--ok);border-radius:50%;margin-right:6px;box-shadow:0 0 6px var(--ok)"></span><span id="live-clock" class="m">${timeStr}</span></span><span style="flex:1"></span><span>${e(ME.name)} <span class="mu m">${e(ME.id)} · ${e(ME.role)}</span></span><button class="s" data-a="show-change-pw">Key &amp; Password</button><button class="s" data-a="tour-start" title="Replay Guided Walkthrough">Tour 🧭</button><button data-a="logout">Sign out</button></div>${OUT?.showChangePw ? `
+  const modeBadge = ENV?.mode === 'PRODUCTION' ? '<span class="chip" style="color:var(--ok);border-color:var(--ok);background:rgba(34,197,94,0.1)">PRODUCTION MODE</span>' : '<span class="chip">DEMO MODE</span>';
+  const deployBadge = `<span class="chip" style="color:var(--ac);border-color:var(--ac-border)">DEPLOYMENT: ${e(ENV?.deploymentProfile || 'LOCAL')}</span>`;
+  const cryptoBadge = ENV?.crypto?.isPostQuantum
+    ? `<span class="chip a" style="color:var(--ok);border-color:var(--ok)">CRYPTO: ${e(ENV.crypto.signatureAlgorithm)}</span>`
+    : `<span class="chip a" title="${e(ENV?.crypto?.details || '')}">CRYPTO: ${e(ENV?.crypto?.signatureAlgorithm || 'Development Provider')}</span>`;
+  const ledgerBadge = `<span class="chip" style="color:var(--mu)" title="${e(ENV?.ledger?.details || '')}">LEDGER: ${e(ENV?.ledger?.provider || 'Permissioned DLT')}</span>`;
+  A.innerHTML = `<aside><h1>PROVENANCE</h1>${nav.map(n => `<button class="nv ${V === n[0] ? 'on' : ''}" data-a="nav" data-v="${n[0]}">${n[1]}</button>`).join('')}</aside><main><div class="top">${modeBadge}${deployBadge}${cryptoBadge}${ledgerBadge}<span class="chip" style="color:var(--tx);border-color:var(--bd-light);background:var(--pn-elevated)"><span style="display:inline-block;width:6px;height:6px;background:var(--ok);border-radius:50%;margin-right:6px;box-shadow:0 0 6px var(--ok)"></span><span id="live-clock" class="m">${timeStr}</span></span><span style="flex:1"></span><span>${e(ME?.name || '')} <span class="mu m">${e(ME?.id || '')} · ${e(ME?.role || '')}</span></span><button class="s" data-a="show-change-pw">Key &amp; Password</button><button class="s" data-a="tour-start" title="Replay Guided Walkthrough">Tour 🧭</button><button data-a="logout">Sign out</button></div>${OUT?.showChangePw ? `
   <div class="c" style="margin-bottom:20px;border-left:4px solid var(--ac)">
     <div class="l" style="color:var(--ac)">Change Password &amp; Re-Seal Private Key Envelopes</div>
     <p class="mu" style="font-size:12px;margin:4px 0 12px">Re-derives your scrypt Key Encryption Key (KEK) and re-encrypts all your signing &amp; KEM private keys under your new secret. All previous login sessions are invalidated.</p>
@@ -1289,6 +1489,13 @@ async function draw() {
 
   if (TOUR_MODAL || TOUR_ACTIVE) {
     renderTour();
+  }
+
+  if (TARGET_HIGHLIGHT && V === 'led') {
+    setTimeout(() => {
+      const el = $(`ledger-block-${TARGET_HIGHLIGHT.block}`) || $(`tx-${TARGET_HIGHLIGHT.tx}`);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 60);
   }
 }
 
@@ -1821,6 +2028,33 @@ document.addEventListener('click', async ev => {
     if (old) old.remove();
     return;
   }
+  if (a === 'switch-auth-tab') {
+    PUB_VIEW = v;
+    return draw();
+  }
+  if (a === 'register') return go(async () => {
+    const name = $('reg-name')?.value?.trim();
+    const username = $('reg-username')?.value?.trim();
+    const role = $('reg-role')?.value;
+    const password = $('reg-password')?.value;
+    const confirm = $('reg-confirm')?.value;
+    if (!name) throw new Error('Full name required');
+    if (!username) throw new Error('Username required');
+    if (!password || password.length < 8) throw new Error('Password must be at least 8 characters');
+    if (password !== confirm) throw new Error('Passwords do not match');
+
+    const r = await api('/auth/register', 'POST', { name, username, role, password });
+    T = r.token;
+    ME = r.user;
+    sessionStorage.setItem('t', T);
+    sessionStorage.setItem('me', JSON.stringify(ME));
+    V = 'dash';
+    OUT = null;
+    toast(`Identity registered: ${r.user.id} (${r.user.role})`);
+    TOUR_MODAL = 'welcome';
+    TOUR_STEP = 0;
+    TOUR_ACTIVE = false;
+  });
   if (a === 'login') return go(async () => {
     const r = await api('/auth/login', 'POST', { username: $('u').value, password: $('p').value });
     T = r.token;
@@ -1892,6 +2126,58 @@ document.addEventListener('click', async ev => {
     }
     return draw();
   }
+  if (a === 'goto-ledger-block') {
+    if (TOUR_ACTIVE || TOUR_MODAL) {
+      stopTourAutoplay();
+      TOUR_ACTIVE = false;
+      TOUR_MODAL = null;
+      document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
+      const old = $('tour-root');
+      if (old) old.remove();
+    }
+    V = 'led';
+    const blk = el.dataset.block ? parseInt(el.dataset.block, 10) : null;
+    const tx = el.dataset.tx || null;
+    TARGET_HIGHLIGHT = { block: blk, tx: tx };
+    // Clear highlight after 5 seconds
+    setTimeout(() => { TARGET_HIGHLIGHT = null; }, 5000);
+    return draw();
+  }
+  if (a === 'filter-sess-by-doc') {
+    if (TOUR_ACTIVE || TOUR_MODAL) {
+      stopTourAutoplay();
+      TOUR_ACTIVE = false;
+      TOUR_MODAL = null;
+      document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
+      const old = $('tour-root');
+      if (old) old.remove();
+    }
+    V = 'sess';
+    FILTERS.sessDoc = v;
+    return draw();
+  }
+  if (a === 'clear-doc-filter') {
+    FILTERS.docText = '';
+    FILTERS.docCls = '';
+    return draw();
+  }
+  if (a === 'clear-sess-doc-filter') {
+    FILTERS.sessDoc = '';
+    return draw();
+  }
+  if (a === 'clear-sess-filter') {
+    FILTERS.sessDoc = '';
+    FILTERS.sessUser = '';
+    return draw();
+  }
+  if (a === 'clear-led-filter') {
+    FILTERS.ledTxType = '';
+    return draw();
+  }
+  if (a === 'clear-user-filter') {
+    FILTERS.userRole = '';
+    return draw();
+  }
   if (a === 'sel') { SEL = ev.target.checked ? [...SEL, v].slice(-2) : SEL.filter(x => x !== v); return draw(); }
   go(async () => {
     OUT = null;
@@ -1905,7 +2191,27 @@ document.addEventListener('click', async ev => {
     else if (a === 'resync') { await api(`/validators/${v}/resync`, 'POST', {}); toast(v + ' resynchronised from the verified majority'); }
     else if (a === 'attack') { await api('/lab/compromise', 'POST', { nodeId: $('an').value, kind: $('ak').value }); toast('Attack applied to one validator only'); }
     else if (a === 'run') OUT = { inv: await api('/investigations', 'POST', { leakId: v }) };
+    else if (a === 'paste-inv') {
+      const text = $('inv-text')?.value?.trim();
+      if (!text) throw new Error('Please paste text content to analyse');
+      const label = $('inv-label')?.value?.trim() || 'pasted-text-artefact';
+      OUT = { inv: await api('/investigations', 'POST', { text, label }) };
+    }
     else if (a === 'upl') { const f = $('f').files[0]; if (!f) throw new Error('Choose a file first'); if (f.size > 500000) throw new Error('File too large'); OUT = { inv: await api('/investigations', 'POST', { text: await f.text(), label: f.name.slice(0, 80) }) }; }
+    else if (a === 'copy-dec') {
+      const textEl = $('decrypted-plaintext');
+      if (textEl && navigator.clipboard) {
+        await navigator.clipboard.writeText(textEl.textContent);
+        toast('Plaintext copied to clipboard');
+      } else {
+        toast('Clipboard copy unavailable');
+      }
+      return;
+    }
+    else if (a === 'clear-dec') {
+      OUT = null;
+      return draw();
+    }
     else if (a === 'show-create-user') { OUT = { showCreateUser: true }; }
     else if (a === 'cancel-create-user') { OUT = { showCreateUser: false }; }
     else if (a === 'createuser') {
@@ -1937,4 +2243,39 @@ document.addEventListener('click', async ev => {
     else if (a === 'lab') OUT = { lab: await api('/lab/run') };
   });
 });
+
+document.addEventListener('input', ev => {
+  const id = ev.target.id;
+  if (id === 'doc-search') {
+    FILTERS.docText = ev.target.value;
+    const pos = ev.target.selectionStart;
+    draw().then(() => {
+      const el = $(id);
+      if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch {} }
+    });
+  } else if (id === 'sess-user-filter') {
+    FILTERS.sessUser = ev.target.value;
+    const pos = ev.target.selectionStart;
+    draw().then(() => {
+      const el = $(id);
+      if (el) { el.focus(); try { el.setSelectionRange(pos, pos); } catch {} }
+    });
+  }
+});
+
+document.addEventListener('change', ev => {
+  const id = ev.target.id;
+  if (id === 'doc-cls-filter') {
+    FILTERS.docCls = ev.target.value;
+    draw();
+  } else if (id === 'led-type-filter') {
+    FILTERS.ledTxType = ev.target.value;
+    draw();
+  } else if (id === 'user-role-filter') {
+    FILTERS.userRole = ev.target.value;
+    draw();
+  }
+});
+
 draw();
+

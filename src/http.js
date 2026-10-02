@@ -12,14 +12,51 @@ const HEADERS = { 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY'
   'content-security-policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'" };
 const ALL = ['SENDER', 'RECIPIENT', 'INVESTIGATOR', 'ADMIN'], MAX_BODY = 1_000_000;
 
-export function createHttpServer(app, { log = console.error, tls = null } = {}) {
+function parseCookies(cookieHeader) {
+  const list = {};
+  if (!cookieHeader) return list;
+  cookieHeader.split(';').forEach(cookie => {
+    let [name, ...rest] = cookie.split('=');
+    name = name?.trim();
+    if (!name) return;
+    const value = rest.join('=').trim();
+    list[name] = decodeURIComponent(value);
+  });
+  return list;
+}
+
+export function createRequestHandler(app, { log = console.error } = {}) {
   const routes = [];
   const R = (m, p, roles, h) => routes.push([m, new RegExp('^' + p.replace(/:\w+/g, '([^/]+)') + '$'), roles, h]);
-  // ---- routes: every handler receives (auth, params, body) where auth = {user, kek} ----
-  R('POST', '/api/auth/login', null, (_, __, b) => app.login(b.username, b.password));
-  R('POST', '/api/auth/logout', ALL, (a, _, __, tok) => { app.logout(tok); return { ok: true }; });
+
+  // ---- routes: every handler receives (auth, params, body, token, req, res) ----
+  R('POST', '/api/auth/register', null, (_, __, b, ___, req, res) => {
+    const out = app.register(b);
+    if (res && out?.token) {
+      const isSecure = req.headers['x-forwarded-proto'] === 'https' || req.socket?.encrypted;
+      res.setHeader('Set-Cookie', `sih_token=${out.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${480 * 60}${isSecure ? '; Secure' : ''}`);
+    }
+    return out;
+  });
+  R('POST', '/api/auth/login', null, (_, __, b, ___, req, res) => {
+    const out = app.login(b.username, b.password);
+    if (res && out?.token) {
+      const isSecure = req.headers['x-forwarded-proto'] === 'https' || req.socket?.encrypted;
+      res.setHeader('Set-Cookie', `sih_token=${out.token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${480 * 60}${isSecure ? '; Secure' : ''}`);
+    }
+    return out;
+  });
+  R('POST', '/api/auth/logout', ALL, (a, _, __, tok, req, res) => {
+    app.logout(tok);
+    if (res) {
+      const isSecure = req.headers['x-forwarded-proto'] === 'https' || req.socket?.encrypted;
+      res.setHeader('Set-Cookie', `sih_token=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0${isSecure ? '; Secure' : ''}`);
+    }
+    return { ok: true };
+  });
   R('POST', '/api/auth/change-password', ALL, (a, _, b) => app.changePassword(a.user, a.kek, b));
   R('GET', '/api/me', ALL, a => ({ id: a.user.id, name: a.user.name, role: a.user.role }));
+  R('GET', '/api/environment', ALL, () => app.environment());
   R('GET', '/api/dashboard', ALL, () => app.dashboard());
   R('GET', '/api/documents', ['SENDER', 'RECIPIENT', 'ADMIN'], a => app.listDocuments(a.user));
   R('POST', '/api/documents', ['SENDER'], (a, _, b) => app.createDocument(a.user, a.kek, b));
@@ -29,7 +66,7 @@ export function createHttpServer(app, { log = console.error, tls = null } = {}) 
   R('POST', '/api/leaks', ['SENDER', 'RECIPIENT', 'ADMIN'], (a, _, b) => app.createLeak(a.user, b.sessionId));
   R('GET', '/api/leaks', ['INVESTIGATOR', 'ADMIN'], () => app.listLeaks());
   R('POST', '/api/investigations', ['INVESTIGATOR', 'ADMIN'], (a, _, b) => app.investigate(a.user, b));
-  R('GET', '/api/investigations', ['INVESTIGATOR', 'ADMIN'], () => app.listInvestigations());
+  R('GET', '/api/investigations', ['INVESTIGATOR', 'ADMIN'], a => app.listInvestigations(a.user));
   R('GET', '/api/ledger/blocks', ALL, () => app.ledgerBlocks());
   R('GET', '/api/ledger/keys', ALL, () => app.ledgerKeys());
   R('POST', '/api/ledger/validate', ALL, () => app.validateLedger());
@@ -50,18 +87,18 @@ export function createHttpServer(app, { log = console.error, tls = null } = {}) 
   R('POST', '/api/users/:id/toggle', ['ADMIN'], (a, [id]) => app.toggleUserStatus(a.user, id));
   R('GET', '/api/audit', ['SENDER', 'INVESTIGATOR', 'ADMIN'], () => app.audit());
   R('POST', '/api/reset', null, (a, _, __, ___, req) => {
-    const loopback = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
+    const loopback = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket?.remoteAddress);
     if (a?.user?.role !== 'ADMIN' && (!app.demoMode || !loopback)) throw ERR(403, 'Reset is limited to administrators or local demo use');
     app.reset(); return { ok: true };
   });
-  const tlsConfig = tls || (process.env.TLS_CERT_PATH && process.env.TLS_KEY_PATH ? {
-    cert: fs.readFileSync(process.env.TLS_CERT_PATH),
-    key: fs.readFileSync(process.env.TLS_KEY_PATH)
-  } : null);
 
-  const requestHandler = (req, res) => {
+  return (req, res) => {
     let body = '', size = 0, dead = false;
-    const send = (code, obj, type = 'application/json') => { if (dead) return; res.writeHead(code, { ...HEADERS, 'content-type': type }); res.end(type === 'application/json' ? J(obj) : obj); };
+    const send = (code, obj, type = 'application/json') => {
+      if (dead) return;
+      res.writeHead(code, { ...HEADERS, 'content-type': type });
+      res.end(type === 'application/json' ? J(obj) : obj);
+    };
     req.on('data', d => {
       size += d.length;
       if (size > MAX_BODY && !dead) {
@@ -79,13 +116,15 @@ export function createHttpServer(app, { log = console.error, tls = null } = {}) 
           const f = STATIC[url]; if (!f || req.method !== 'GET') return send(404, { error: 'Not found' });
           return send(200, fs.readFileSync(path.join(PUB, f[0])), f[1]);
         }
-        const token = req.headers['x-token'], auth = app.authenticate(token);
+        const cookies = parseCookies(req.headers.cookie);
+        const token = req.headers['x-token'] || cookies.sih_token;
+        const auth = app.authenticate(token);
         for (const [m, re, roles, h] of routes) {
           const x = re.exec(url); if (m !== req.method || !x) continue;
           if (roles && !auth) throw ERR(401, 'Authentication required');
           if (roles && !roles.includes(auth.user.role)) throw ERR(403, `Role ${auth.user.role} is not permitted to perform this action`);
           let b = {}; if (body) { try { b = P(body); } catch { throw ERR(400, 'Malformed JSON'); } if (b === null || typeof b !== 'object' || Array.isArray(b)) throw ERR(400, 'JSON object expected'); }
-          return send(200, h(auth, x.slice(1).map(decodeURIComponent), b, token, req));
+          return send(200, h(auth, x.slice(1).map(decodeURIComponent), b, token, req, res));
         }
         throw ERR(404, 'Not found');
       } catch (e) {
@@ -95,6 +134,14 @@ export function createHttpServer(app, { log = console.error, tls = null } = {}) 
       }
     });
   };
+}
 
+export function createHttpServer(app, { log = console.error, tls = null } = {}) {
+  const tlsConfig = tls || (process.env.TLS_CERT_PATH && process.env.TLS_KEY_PATH ? {
+    cert: fs.readFileSync(process.env.TLS_CERT_PATH),
+    key: fs.readFileSync(process.env.TLS_KEY_PATH)
+  } : null);
+
+  const requestHandler = createRequestHandler(app, { log });
   return tlsConfig ? https.createServer(tlsConfig, requestHandler) : http.createServer(requestHandler);
 }
