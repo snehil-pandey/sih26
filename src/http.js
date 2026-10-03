@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ERR, P, J } from './util.js';
+import { demoManager } from './demo-session.js';
 
 const PUB = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
 // Static files are served from a fixed allow-list only (no path traversal possible).
@@ -56,7 +57,7 @@ export function createRequestHandler(app, { log = console.error } = {}) {
   });
   R('POST', '/api/auth/change-password', ALL, (a, _, b) => app.changePassword(a.user, a.kek, b));
   R('GET', '/api/me', ALL, a => ({ id: a.user.id, name: a.user.name, role: a.user.role }));
-  R('GET', '/api/environment', ALL, () => app.environment());
+  R('GET', '/api/environment', null, () => app.environment());
   R('GET', '/api/dashboard', ALL, () => app.dashboard());
   R('GET', '/api/documents', ['SENDER', 'RECIPIENT', 'ADMIN'], a => app.listDocuments(a.user));
   R('POST', '/api/documents', ['SENDER'], (a, _, b) => app.createDocument(a.user, a.kek, b));
@@ -92,6 +93,26 @@ export function createRequestHandler(app, { log = console.error } = {}) {
     app.reset(); return { ok: true };
   });
 
+  // ---- Isolated Ephemeral Interactive Demo Endpoints ----
+  R('POST', '/api/demo/start', null, () => {
+    const sessionId = demoManager.createSession();
+    return { ok: true, sessionId };
+  });
+  R('POST', '/api/demo/execute', null, async (_, __, b) => {
+    const sessionId = b?.sessionId;
+    const targetStep = parseInt(b?.step || 1, 10);
+    if (!sessionId) throw ERR(400, 'Demo sessionId required');
+    const session = demoManager.getSession(sessionId);
+    if (!session) throw ERR(404, 'Demo session expired or not found');
+    const res = await session.executeStep(targetStep);
+    return res;
+  });
+  R('POST', '/api/demo/stop', null, (_, __, b) => {
+    const sessionId = b?.sessionId;
+    if (sessionId) demoManager.destroySession(sessionId);
+    return { ok: true };
+  });
+
   return (req, res) => {
     let body = '', size = 0, dead = false;
     const send = (code, obj, type = 'application/json') => {
@@ -108,7 +129,7 @@ export function createRequestHandler(app, { log = console.error } = {}) {
         req.resume();
       } else if (!dead) body += d;
     });
-    req.on('end', () => {
+    req.on('end', async () => {
       if (dead) return;
       try {
         const url = req.url.split('?')[0];
@@ -124,7 +145,8 @@ export function createRequestHandler(app, { log = console.error } = {}) {
           if (roles && !auth) throw ERR(401, 'Authentication required');
           if (roles && !roles.includes(auth.user.role)) throw ERR(403, `Role ${auth.user.role} is not permitted to perform this action`);
           let b = {}; if (body) { try { b = P(body); } catch { throw ERR(400, 'Malformed JSON'); } if (b === null || typeof b !== 'object' || Array.isArray(b)) throw ERR(400, 'JSON object expected'); }
-          return send(200, h(auth, x.slice(1).map(decodeURIComponent), b, token, req, res));
+          const resObj = await h(auth, x.slice(1).map(decodeURIComponent), b, token, req, res);
+          return send(200, resObj);
         }
         throw ERR(404, 'Not found');
       } catch (e) {

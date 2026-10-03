@@ -2,6 +2,15 @@
 'use strict';
 let T = sessionStorage.getItem('t'), ME = JSON.parse(sessionStorage.getItem('me') || 'null'), V = 'dash', SEL = [], OUT = null, EV = null;
 let ENV = null;
+let PUB_VIEW = 'login'; // 'login' | 'register' | 'how' | 'demo'
+let DEMO_SESSION_ID = null;
+let DEMO_STEP = 1;
+let DEMO_MODE = 'self'; // 'self' | 'guided'
+let DEMO_AUTOPLAY = null;
+let DEMO_TIME_LEFT = 8;
+let DEMO_DATA = null;
+let DEMO_SHOW_MODAL = false;
+let DEMO_SHOW_TECH = false;
 let FILTERS = { docText: '', docCls: '', sessDoc: '', sessUser: '', ledTxType: '', userRole: '' };
 let TARGET_HIGHLIGHT = null; // { id: 'block-2' or 'session-xxx' }
 const e = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -22,10 +31,26 @@ function signout() {
   }
 }
 async function api(p, m = 'GET', b) {
+  // If demo is active and a context snapshot has this data for GET requests, serve it directly
+  if (DEMO_SESSION_ID && DEMO_DATA?.contextSnapshot && m === 'GET' && !p.startsWith('/demo')) {
+    const snap = DEMO_DATA.contextSnapshot;
+    if (p === '/documents' && snap.documents) return snap.documents;
+    if (p === '/sessions' && snap.sessions) return snap.sessions;
+    if (p === '/dashboard' && snap.dashboard) return snap.dashboard;
+    if (p === '/validators' && snap.validators) return snap.validators;
+    if (p === '/ledger/blocks' && snap.blocks) return snap.blocks;
+    if (p === '/ledger/keys' && snap.keys) return snap.keys;
+    if (p === '/investigations' && snap.investigations) return snap.investigations;
+    if (p === '/leaks' && snap.leaks) return snap.leaks;
+    if (p === '/identities' && snap.identities) return snap.identities;
+    if (p === '/audit' && snap.audit) return snap.audit;
+    if (p === '/environment' && DEMO_DATA.environment) return DEMO_DATA.environment;
+  }
+
   const r = await fetch('/api' + p, { method: m, headers: { 'content-type': 'application/json', 'x-token': T || '' }, body: b === undefined ? undefined : JSON.stringify(b) });
   const j = await r.json().catch(() => ({ error: 'Bad response' }));
   if (!r.ok) {
-    if (r.status === 401 && ME) signout();
+    if (r.status === 401 && ME && !DEMO_SESSION_ID) signout();
     throw Object.assign(new Error(j.error || 'Request failed'), { status: r.status });
   }
   return j;
@@ -39,479 +64,6 @@ const NAV = {
   ADMIN: [['dash', 'Command center'], ['how', 'How it works'], ['docs', 'Documents'], ['sess', 'Sessions'], ['led', 'Provenance ledger'], ['val', 'Validators'], ['id', 'Identities & keys'], ['lab', 'Security lab'], ['aud', 'Audit']],
 };
 const evBox = x => `<table>${kv(`Signature (${e(ENV?.crypto?.isPostQuantum ? ENV.crypto.signatureAlgorithm : 'Recipient Key')})`, tag(x.signatureValid))}${kv('Transaction', tag(x.transactionValid))}${kv('Block + approvals', tag(x.blockValid, 'VALID', 'INVALID') + ` <span class="m mu">${x.approvals} valid approvals</span>`)}${kv('Chain', tag(x.chainValid))}${kv('Validator agreement', tag(x.validatorAgreement.agreed, 'AGREED', 'NO QUORUM') + ` <span class="m mu">${x.validatorAgreement.inSync}/${x.validatorAgreement.total} in sync${x.validatorAgreement.diverged.length ? ' · diverged: ' + e(x.validatorAgreement.diverged.join(', ')) : ''}</span>`)}${x.key ? kv('Key', `<span class="m">${e(x.key.keyId)} · ${e(x.key.status)}</span>`) : ''}</table>`;
-let TOUR_ACTIVE = false;
-let TOUR_STEP = 0;
-let TOUR_MODAL = null; // 'welcome' | 'done' | null
-let TOUR_AUTOPLAY = null;
-
-function stopTourAutoplay() {
-  if (TOUR_AUTOPLAY) {
-    clearTimeout(TOUR_AUTOPLAY);
-    TOUR_AUTOPLAY = null;
-  }
-}
-
-function getTourStepDuration(step) {
-  if (!step) return 4000;
-  const text = (step.title || '') + ' ' + (step.desc || '') + ' ' + (step.why || '');
-  const words = text.trim().split(/\s+/).filter(Boolean).length;
-  // Dynamic reading pace: ~180-200 WPM + 1.5s thinking cushion, clamped between 3.5s and 8.5s
-  const ms = Math.round(words * 260) + 1500;
-  return Math.max(3500, Math.min(8500, ms));
-}
-
-const TOUR_STEPS_BY_ROLE = {
-  SENDER: [
-    // --- WORKSPACE ORIENTATION ---
-    {
-      target: "aside",
-      fallback: "main",
-      view: "dash",
-      title: "Sender Enclave Orientation",
-      desc: "Welcome Commander. This console governs the lifecycle of classified defense documents: local AES-256-GCM encryption, post-quantum recipient key encapsulation, immutable multi-node ledger anchoring, and forensic watermark tracing.",
-      why: "Ensures no document leaves local custody or is decrypted without an unbroken cryptographic chain of custody anchored across independent validator nodes."
-    },
-    {
-      target: ".top",
-      fallback: "main",
-      view: "dash",
-      title: "Security Context & Session Status",
-      desc: "Displays active post-quantum cryptography simulations (ML-KEM-768 and ML-DSA-65), UTC temporal synchronization, your authenticated sender identity, and tour controls.",
-      why: "All document sealing actions, key capsules, and transaction timestamps are cryptographically bound to your authenticated identity and UTC monotonic block headers."
-    },
-
-    // --- COMMAND CENTER (DASH) ---
-    {
-      target: "main .c:first-of-type",
-      fallback: "main",
-      view: "dash",
-      title: "Consensus Integrity & Node Synchronization",
-      desc: "Continuously tracks independent validator node state. It verifies that at least 3 of 5 validator nodes agree on the canonical ledger head hash and warns immediately if any node diverges.",
-      why: "You should only seal and distribute classified operational briefs when the distributed ledger consensus is verified and healthy across the validator network."
-    },
-    {
-      target: "main .g",
-      fallback: "main",
-      view: "dash",
-      title: "Operational Metrics & Throughput",
-      desc: "Provides a real-time summary of active documents under custody, authorized recipients, cumulative decryption sessions, ledger blocks, and forensic investigations.",
-      why: "Gives immediate operational visibility into document circulation and system-wide cryptographic events."
-    },
-
-    // --- HOW IT WORKS (HOW) ---
-    {
-      target: "main .hiw-container",
-      fallback: "main",
-      view: "how",
-      title: "Architectural Model & Cryptographic Flow",
-      desc: "Interactive 2.5D visual model demonstrating the complete lifecycle of a document: local sealing, recipient key encapsulation, validator consensus, authorized decryption, zero-width watermarking, and forensic tracing.",
-      why: "Provides deep architectural transparency into how data structures, key capsules, and canonical blocks interact under the hood."
-    },
-
-    // --- DOCUMENTS WORKSPACE (DOCS) ---
-    {
-      target: "#new-doc-card",
-      fallback: "main",
-      view: "docs",
-      title: "Document Creation & Sealing Workflow",
-      desc: "The secure authoring enclave where you input the brief's title, assign its formal security classification (RESTRICTED, CONFIDENTIAL, or SECRET), and provide the sensitive plaintext content.",
-      why: "The system generates a single-use 256-bit Content Encryption Key (CEK) and encrypts the document locally with AES-256-GCM before it ever touches external storage."
-    },
-    {
-      target: "#recipients-group",
-      fallback: "#new-doc-card",
-      view: "docs",
-      title: "Recipients & Access Authorization",
-      desc: "Defines exactly which verified personnel are permitted to decrypt the document. Checking a recipient establishes an ML-KEM-768 post-quantum key capsule for their identity.",
-      why: "When you click 'Encrypt, authorize & anchor', your device signs an AUTHORIZATION transaction committing the recipient's public key ID to the distributed ledger. Unselected personnel cannot decrypt the file even if they obtain the ciphertext."
-    },
-    {
-      target: "main .g2",
-      fallback: "main",
-      view: "docs",
-      title: "Document Custody & Access Roster",
-      desc: "Displays all active encrypted briefs, their cryptographic content hashes (SHA-256), current version numbers, cumulative decryption counters, and authorized recipient rosters.",
-      why: "Allows senders to audit document distribution at a glance and verify that content hashes match authorized releases."
-    },
-
-    // --- SESSIONS & WATERMARKS (SESS) ---
-    {
-      target: "main .c.wrapx",
-      fallback: "main",
-      view: "sess",
-      title: "Decryption Sessions & Watermark Tracking",
-      desc: "Audits every plaintext decryption event across the network. Each decryption records a unique session ID, recipient identity, invisible zero-width watermark ID, and anchored ledger block.",
-      why: "Enables side-by-side comparison of two sessions to demonstrate how identical briefs carry unique, recipient-specific watermarks, and allows simulating unauthorized leaks for testing."
-    },
-
-    // --- PROVENANCE LEDGER (LED) ---
-    {
-      target: "main .c.wrapx:has(table)",
-      fallback: "main",
-      view: "led",
-      title: "Public-Key Registry on Ledger",
-      desc: "Maintains canonical public key records for all operators (including ML-DSA-65 signing keys and ML-KEM-768 encapsulation keys), tracking versioning and active/revoked statuses.",
-      why: "Public keys are verified strictly from consensus blocks, preventing key substitution attacks and ensuring historical keys remain verifiable."
-    },
-    {
-      target: "main .c:has(b)",
-      fallback: "main",
-      view: "led",
-      title: "Immutable Blocks & Transaction Payloads",
-      desc: "The append-only canonical ledger chain showing block indices, timestamps, validator approvals, hash continuity, and signed transaction payloads (KEY_REGISTRATION, AUTHORIZATION, PROVENANCE).",
-      why: "Transactions are permanently sealed across independent node databases. Changing any past record breaks cryptographic hash links and is rejected by validators."
-    },
-
-    // --- VALIDATORS NETWORK (VAL) ---
-    {
-      target: "main .c.wrapx",
-      fallback: "main",
-      view: "val",
-      title: "Validator Network & Byzantine Fault Tolerance",
-      desc: "Inspects live node states, ledger heights, latest block hashes, and consensus agreements across the 5 independent validator SQLite nodes.",
-      why: "Transactions and blocks require agreement from at least 3 of 5 independent nodes (quorum), guaranteeing resilient consensus without single points of failure."
-    },
-
-    // --- SYSTEM AUDIT (AUD) ---
-    {
-      target: "main .g2",
-      fallback: "main",
-      view: "aud",
-      title: "Dual-Layer System Audit",
-      desc: "Presents authoritative ledger events (extracted from immutable blockchain blocks) alongside non-authoritative operational logs (HTTP requests and operator telemetry).",
-      why: "Maintains an unalterable, tamper-evident audit trail of all authorizations, decryptions, and administrative interventions."
-    }
-  ],
-
-  RECIPIENT: [
-    // --- WORKSPACE ORIENTATION ---
-    {
-      target: "aside",
-      fallback: "main",
-      view: "dash",
-      title: "Recipient Terminal Orientation",
-      desc: "Welcome to your secure recipient terminal. This workspace allows authorized defense personnel to receive, decrypt, and review classified operational briefs designated for your identity.",
-      why: "Every document decryption is cryptographically governed: your device unwraps a post-quantum key capsule, embeds an invisible provenance watermark, and signs a ledger record."
-    },
-    {
-      target: ".top",
-      fallback: "main",
-      view: "dash",
-      title: "Security Context & Cryptographic Identity",
-      desc: "Displays your authenticated recipient identity, active post-quantum cryptography simulations (ML-KEM-768/ML-DSA-65), UTC timestamp synchronization, and tour replay controls.",
-      why: "Only documents with a verified AUTHORIZATION transaction matching your registered public key on the ledger can be unlocked by this terminal."
-    },
-
-    // --- COMMAND CENTER (DASH) ---
-    {
-      target: "main .c:first-of-type",
-      fallback: "main",
-      view: "dash",
-      title: "Consensus Status & Network Health",
-      desc: "Confirms that the distributed validator ledger is in active consensus and synchronized across all nodes before you attempt any document access.",
-      why: "Decryption requires an active validator quorum to validate and anchor your signed PROVENANCE transaction to the canonical blockchain."
-    },
-    {
-      target: "main .g",
-      fallback: "main",
-      view: "dash",
-      title: "Personal Operational Summary",
-      desc: "Summarizes active briefs authorized for your account, total successful decryptions, and personal activity across the defense network.",
-      why: "Provides immediate situational awareness of classified materials accessible under your security clearance."
-    },
-
-    // --- HOW IT WORKS (HOW) ---
-    {
-      target: "main .hiw-container",
-      fallback: "main",
-      view: "how",
-      title: "Recipient Decryption & Provenance Model",
-      desc: "Interactive 2.5D architectural demonstration showing how your private key decapsulates the session key, renders plaintext, and injects zero-width steganographic watermarks.",
-      why: "Explains how the system ensures document confidentiality while preserving undeniable attribution."
-    },
-
-    // --- MY SECURE DOCUMENTS (DOCS) ---
-    {
-      target: "main .g2",
-      fallback: "main",
-      view: "docs",
-      title: "Authorized Classified Documents",
-      desc: "The secure documents repository showing briefs authorized specifically for your identity. Each card displays security classification, content hash, version, and cumulative access count.",
-      why: "Clicking 'Decrypt' initiates key decapsulation, displays the plaintext operational brief, embeds your unique watermark, and signs an immutable PROVENANCE transaction with ML-DSA-65."
-    },
-    {
-      target: "main .c:last-child",
-      fallback: "main",
-      view: "docs",
-      title: "Cryptographic Authorization Enforcement",
-      desc: "Allows testing direct document access by ID. It demonstrates that access control is enforced cryptographically by the backend—unauthorized requests are denied and leave no state.",
-      why: "Confirms that unauthorized users cannot bypass authorization rules even if they know the document identifier."
-    },
-
-    // --- SESSIONS & WATERMARKS (SESS) ---
-    {
-      target: "main .c.wrapx",
-      fallback: "main",
-      view: "sess",
-      title: "Personal Decryption Sessions & Provenance Records",
-      desc: "A personal audit trail of every decryption executed from your terminal, including unique session IDs, document IDs, zero-width watermark IDs, and anchored block numbers.",
-      why: "Gives recipients complete personal auditability over all signed provenance transactions committed under their identity, with side-by-side comparison capabilities."
-    },
-
-    // --- CRYPTOGRAPHIC IDENTITY (ID) ---
-    {
-      target: "main .c.wrapx",
-      fallback: "main",
-      view: "id",
-      title: "Cryptographic Identity & Key Rotation",
-      desc: "Displays your registered public key on the ledger, key version, active status, and provides the 'Rotate my key' action to generate a new key pair.",
-      why: "Rotated keys remain linked on the ledger, ensuring historical decryptions continue to verify mathematically without breaking attribution."
-    }
-  ],
-
-  INVESTIGATOR: [
-    // --- WORKSPACE ORIENTATION ---
-    {
-      target: "aside",
-      fallback: "main",
-      view: "dash",
-      title: "Forensic Investigation Enclave",
-      desc: "Welcome Investigator. This enclave provides unbiased, mathematical attribution of leaked defense documents using zero-width steganography, canonical ledger queries, and post-quantum signature verification.",
-      why: "Operates with zero human bias: the investigator supplies only the leaked text artifact without selecting suspects or guessing recipients."
-    },
-    {
-      target: ".top",
-      fallback: "main",
-      view: "dash",
-      title: "Forensic Environment & Verification Engine",
-      desc: "Displays active cryptographic verification engines (ML-DSA-65 signature checks, SHA-256 chaining, DLT consensus verification), UTC timestamps, and tour replay controls.",
-      why: "All investigative conclusions and attribution verdicts are timestamped and corroborated against canonical validator blocks."
-    },
-
-    // --- COMMAND CENTER (DASH) ---
-    {
-      target: "main .c:first-of-type",
-      fallback: "main",
-      view: "dash",
-      title: "Consensus Integrity & Evidentiary Health",
-      desc: "Verifies that all 5 validator nodes agree on the canonical ledger state and that no storage divergence has occurred.",
-      why: "Forensic attribution is only legally and mathematically sound when anchored by an active validator quorum (at least 3 of 5 nodes)."
-    },
-    {
-      target: "main .g",
-      fallback: "main",
-      view: "dash",
-      title: "Forensic Case Metrics",
-      desc: "Summarizes active investigations, verified attributions, total blocks, and system-wide document circulation metrics.",
-      why: "Provides instant situational awareness over pending and resolved leak investigations."
-    },
-
-    // --- HOW IT WORKS (HOW) ---
-    {
-      target: "main .hiw-container",
-      fallback: "main",
-      view: "how",
-      title: "7-Stage Forensic Attribution Model",
-      desc: "Visual walkthrough of the complete forensic pipeline: Artefact Ingestion → Watermark Recovery → Ledger Query → Historical Key Resolution → Signature Audit → Chain Validation → Final Attribution Verdict.",
-      why: "Demonstrates the mathematical rigor behind every stage of evidence analysis."
-    },
-
-    // --- INVESTIGATIONS ENCLAVE (INV) ---
-    {
-      target: "main .c:first-of-type",
-      fallback: "main",
-      view: "inv",
-      title: "Leaked Artefact Ingestion & Analysis",
-      desc: "The primary investigation portal. You can select simulated leaked snippets from known sessions or upload external plaintext (.txt) files recovered from unauthorized channels.",
-      why: "The forensic engine scans raw character streams for zero-width Unicode characters, validates checksum parity, and extracts the embedded watermark ID."
-    },
-    {
-      target: "main .c.wrapx:last-of-type",
-      fallback: "main",
-      view: "inv",
-      title: "Investigation History & Evidentiary Archive",
-      desc: "Maintains an immutable record of all completed forensic investigations, including recovered watermark IDs, attribution statuses (VERIFIED_PROVENANCE_MATCH or NO_ATTRIBUTION), and timestamps.",
-      why: "Provides an undeniable, reproducible record of all investigative findings for formal defense inquiries."
-    },
-
-    // --- PROVENANCE LEDGER (LED) ---
-    {
-      target: "main .c.wrapx:has(table)",
-      fallback: "main",
-      view: "led",
-      title: "Ledger Key Registry & Signature Verification",
-      desc: "Inspects canonical public keys and provides tools to independently verify ML-DSA-65 recipient signatures directly on committed PROVENANCE transactions.",
-      why: "Allows investigators to test signatures against correct and adversarial recipient keys, proving that attribution fails closed if a signature does not match."
-    },
-    {
-      target: "main .c:has(b)",
-      fallback: "main",
-      view: "led",
-      title: "Block Continuity & Validator Approvals",
-      desc: "Reviews block continuity, previous-hash chaining, and Ed25519 validator node signatures anchored across the network.",
-      why: "Guarantees that evidence records have not been rewritten, truncated, or tampered with since creation."
-    },
-
-    // --- SECURITY TEST LAB (LAB) ---
-    {
-      target: "main .c",
-      fallback: "main",
-      view: "lab",
-      title: "Automated Adversarial Security Suite",
-      desc: "Executes automated tests in isolated sandboxes: altered watermarks, forged signatures, deleted blocks, and corrupted transactions.",
-      why: "Proves in real time that tampered evidence is rejected and cannot produce false positive attributions."
-    },
-
-    // --- SYSTEM AUDIT (AUD) ---
-    {
-      target: "main .g2",
-      fallback: "main",
-      view: "aud",
-      title: "Authoritative Ledger Audit Timeline",
-      desc: "Corroborates authoritative ledger events from canonical blocks against operational logs.",
-      why: "Ensures comprehensive auditability and evidentiary integrity across all investigative operations."
-    }
-  ],
-
-  ADMIN: [
-    // --- WORKSPACE ORIENTATION ---
-    {
-      target: "aside",
-      fallback: "main",
-      view: "dash",
-      title: "Administrator Super-Console",
-      desc: "Welcome System Administrator. You hold full oversight over the 5-node distributed ledger, Byzantine fault detection, attack simulations, key management, and security suites.",
-      why: "Ensures the distributed ledger and security enclave maintain continuous consensus integrity and fault tolerance."
-    },
-    {
-      target: ".top",
-      fallback: "main",
-      view: "dash",
-      title: "Administrative Security Controls",
-      desc: "Displays active post-quantum cryptography simulations, military UTC time ticker, administrator credentials, and guided tour controls.",
-      why: "Validates that administrative interventions are authenticated and timestamped across the network."
-    },
-
-    // --- COMMAND CENTER (DASH) ---
-    {
-      target: "main .c:first-of-type",
-      fallback: "main",
-      view: "dash",
-      title: "Multi-Node Consensus Overview",
-      desc: "Real-time consensus health across all 5 validator SQLite databases. Displays the synchronized node tally, quorum threshold (3/5), and canonical ledger head hash.",
-      why: "Immediately alerts administrators to node synchronization failures or database divergence across the cluster."
-    },
-    {
-      target: "main .g",
-      fallback: "main",
-      view: "dash",
-      title: "System-Wide Operational Metrics",
-      desc: "High-level metrics grid summarizing active documents, registered recipients, decryption sessions, provenance records, ledger blocks, and investigations.",
-      why: "Provides comprehensive visibility into network activity and storage utilization."
-    },
-
-    // --- HOW IT WORKS (HOW) ---
-    {
-      target: "main .hiw-container",
-      fallback: "main",
-      view: "how",
-      title: "System Architecture & Consensus Model",
-      desc: "Interactive 2.5D architectural demonstration showing document sealing, capsule creation, 5-node validator voting, and forensic attribution.",
-      why: "Serves as an architectural reference for training operators and verifying cryptographic flow."
-    },
-
-    // --- DOCUMENTS (DOCS) ---
-    {
-      target: "main .g2",
-      fallback: "main",
-      view: "docs",
-      title: "Document Custody & Access Rosters",
-      desc: "Full administrative oversight of all encrypted operational briefs, encryption algorithms (AES-256-GCM), content hashes, and authorized recipient lists.",
-      why: "Allows administrators to monitor classified assets under custody without exposing plaintext content."
-    },
-
-    // --- SESSIONS & WATERMARKS (SESS) ---
-    {
-      target: "main .c.wrapx",
-      fallback: "main",
-      view: "sess",
-      title: "Decryption Sessions & Watermark Log",
-      desc: "Comprehensive log of all recipient decryption sessions with unique watermark IDs, block numbers, and side-by-side comparison features.",
-      why: "Enables monitoring of access patterns and verification of unique invisible watermarks across sessions."
-    },
-
-    // --- PROVENANCE LEDGER (LED) ---
-    {
-      target: "main .c.wrapx:has(table)",
-      fallback: "main",
-      view: "led",
-      title: "Canonical Ledger & Public-Key Registry",
-      desc: "Inspects registered public keys, cryptographic algorithms, version histories, and allows on-demand validation across all validator nodes.",
-      why: "Confirms chain continuity and validates that all registered keys adhere to security policy."
-    },
-    {
-      target: "main .c:has(b)",
-      fallback: "main",
-      view: "led",
-      title: "Block Continuity & Transaction Payloads",
-      desc: "Reviews immutable block headers, previous-hash linkage, validator approval signatures, and transaction payloads.",
-      why: "Demonstrates that history cannot be rewritten or modified without breaking cryptographic hash chains."
-    },
-
-    // --- VALIDATOR MANAGEMENT & ATTACK SIMULATION (VAL) ---
-    {
-      target: "main .c.wrapx",
-      fallback: "main",
-      view: "val",
-      title: "Validator Node Management & Quorum Controls",
-      desc: "Granular status of each validator node (ONLINE/OFFLINE, height, latest block hash, validation state, and sync state) with controls to toggle nodes offline or force chain resynchronization.",
-      why: "Demonstrates fault tolerance: the network continues committing transactions as long as at least 3 of 5 nodes are online and synchronized."
-    },
-    {
-      target: "main .c:last-child",
-      fallback: "main",
-      view: "val",
-      title: "Adversarial Attack Simulation",
-      desc: "Interactive security testing console that injects corruptions into ONE validator's private storage (e.g. modified transaction, modified block hash, or deleted block).",
-      why: "Proves that the consensus engine detects divergence immediately and isolates the compromised node while majority consensus holds firm."
-    },
-
-    // --- IDENTITIES & KEYS (ID) ---
-    {
-      target: "main .c.wrapx",
-      fallback: "main",
-      view: "id",
-      title: "Identity Management & Key Revocation",
-      desc: "Centralized identity registry allowing administrators to revoke compromised public keys by committing a KEY_REVOCATION transaction to the ledger.",
-      why: "Revoking a key prevents future authorizations while preserving historical attribution for existing signed records."
-    },
-
-    // --- SECURITY TEST LAB (LAB) ---
-    {
-      target: "main .c",
-      fallback: "main",
-      view: "lab",
-      title: "Security Test Lab Suite",
-      desc: "Executes automated adversarial test scenarios against in-memory throwaway sandboxes to verify defense resistance before live operations.",
-      why: "Verifies zero-width detection, signature verification, and consensus self-healing without altering production ledger state."
-    },
-
-    // --- SYSTEM AUDIT (AUD) ---
-    {
-      target: "main .g2",
-      fallback: "main",
-      view: "aud",
-      title: "Authoritative & Operational Audit",
-      desc: "Dual audit interface comparing immutable ledger blocks against operational telemetry.",
-      why: "Provides unalterable proof of all administrative actions, key revocations, and node resynchronizations."
-    }
-  ]
-};
-
-function getTourSteps() {
-  const role = (ME && ME.role) || 'SENDER';
-  return TOUR_STEPS_BY_ROLE[role] || TOUR_STEPS_BY_ROLE.SENDER;
-}
 
 let HIW_MODE = 'dist'; // 'dist' | 'forensic'
 let HIW_STEP = 0;
@@ -1071,13 +623,13 @@ const VIEW = {
           <button class="p s" data-a="paste-inv" style="width:100%">Analyse Pasted Text</button>
         </div>
 
-        <!-- File Upload -->
-        <div style="background:var(--pn-elevated);padding:14px;border-radius:4px;border:1px solid var(--bd)">
-          <div class="l" style="margin-bottom:6px">Option 2: Upload File</div>
-          <p class="mu" style="font-size:11.5px;margin:0 0 10px">Upload an intercepted `.txt` document file (up to 500 KB).</p>
-          <input type="file" id="f" accept=".txt,text/plain" style="margin-bottom:10px;width:100%">
-          <button class="s" data-a="upl" style="width:100%">Analyse Uploaded File</button>
-        </div>
+          <!-- File Upload -->
+          <div style="background:var(--pn-elevated);padding:14px;border-radius:4px;border:1px solid var(--bd)">
+            <div class="l" style="margin-bottom:6px">Option 2: Upload File</div>
+            <p class="mu" style="font-size:11.5px;margin:0 0 10px">Upload an intercepted \`.txt\` document file (up to 500 KB).</p>
+            <input type="file" id="f" accept=".txt,text/plain" style="margin-bottom:10px;width:100%">
+            <button class="s" data-a="upl" style="width:100%">Analyse Uploaded File</button>
+          </div>
       </div>
 
       <!-- Simulated Leaks Catalog -->
@@ -1212,7 +764,6 @@ window.addEventListener('orientationchange', () => {
   }, 100);
 });
 
-let PUB_VIEW = 'login'; // 'login' | 'how'
 let HIW_PLAY_MODE = 'hero'; // 'hero' | 'story' | 'explore'
 let HIW_SHOW_TECH = false;
 let HIW_SHOW_HELP = null;
@@ -1409,10 +960,42 @@ async function draw() {
       ['forensic', 'Forensic Officer (INVESTIGATOR)'],
       ['admin', 'System Administrator (ADMIN)']
     ];
+    let defaultU = 'sender';
+    let defaultP = 'demo1234';
+    let demoLoginBanner = '';
+    if (DEMO_SESSION_ID && DEMO_DATA) {
+      const s = DEMO_DATA.step;
+      if (s >= 16 && s <= 18) {
+        defaultU = DEMO_DATA.actors?.recipient?.username || 'aarav';
+        defaultP = s === 16 ? '' : (DEMO_DATA.actors?.recipient?.password || 'demo1234');
+        demoLoginBanner = `<div style="background:rgba(56,189,248,0.12);border:1px solid var(--ac-border);border-radius:6px;padding:8px 12px;margin-bottom:14px;display:flex;align-items:center;gap:8px">
+          <span class="tag ac" style="font-weight:700">RECIPIENT TERMINAL</span>
+          <span style="font-size:12px;color:var(--tx)">Officer Aarav Sharma (Authorized Reader)</span>
+        </div>`;
+      } else if (s >= 26 && s <= 28) {
+        defaultU = DEMO_DATA.actors?.investigator?.username || 'forensic';
+        defaultP = s === 26 ? '' : (DEMO_DATA.actors?.investigator?.password || 'demo1234');
+        demoLoginBanner = `<div style="background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.35);border-radius:6px;padding:8px 12px;margin-bottom:14px;display:flex;align-items:center;gap:8px">
+          <span class="tag" style="background:rgba(168,85,247,0.2);color:#c084fc;border-color:rgba(168,85,247,0.4);font-weight:700">FORENSIC LAB TERMINAL</span>
+          <span style="font-size:12px;color:var(--tx)">Inspector Morse (Forensic Auditor)</span>
+        </div>`;
+      } else if (s <= 3) {
+        defaultU = DEMO_DATA.actors?.sender?.username || 'sender';
+        defaultP = s === 1 ? '' : (DEMO_DATA.actors?.sender?.password || 'demo1234');
+        demoLoginBanner = `<div style="background:rgba(34,197,94,0.12);border:1px solid rgba(34,197,94,0.35);border-radius:6px;padding:8px 12px;margin-bottom:14px;display:flex;align-items:center;gap:8px">
+          <span class="tag ok" style="font-weight:700">SENDER CONSOLE</span>
+          <span style="font-size:12px;color:var(--tx)">Commander Arjun (Classified Brief Author)</span>
+        </div>`;
+      }
+    }
+
     A.innerHTML = `<div class="login">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:8px;flex-wrap:wrap">
         <div class="l" style="color:var(--ac);margin:0">SIH26237 · CRYPTOGRAPHIC PROVENANCE</div>
-        <button type="button" class="s" data-a="pub-how" style="color:var(--ac);border-color:var(--ac-border)">How It Works ▶</button>
+        <div style="display:flex;gap:6px">
+          <button type="button" class="s p" data-a="start-demo" style="font-weight:700">Watch Live Demo ⚡</button>
+          <button type="button" class="s" data-a="pub-how" style="color:var(--ac);border-color:var(--ac-border)">How It Works ▶</button>
+        </div>
       </div>
       <h2>PROVENANCE</h2>
       <p class="sub">Decryption Attribution &amp; Forensic Integrity</p>
@@ -1436,8 +1019,9 @@ async function draw() {
         <button class="p" data-a="register" style="width:100%;margin-top:6px">Register &amp; Generate Identity</button>
         <p class="mu" style="font-size:11px;margin-top:10px;line-height:1.4">Generates your cryptographic identity, registers public keys on the permissioned ledger, and establishes your private KEK envelope.</p>
       ` : `
-        <input id="u" placeholder="username" autocomplete="username" value="sender">
-        <input id="p" type="password" placeholder="password" autocomplete="current-password" value="demo1234">
+        ${demoLoginBanner}
+        <input id="u" placeholder="username" autocomplete="username" value="${e(defaultU)}">
+        <input id="p" type="password" placeholder="password" autocomplete="current-password" value="${e(defaultP)}">
         <button class="p" data-a="login" style="width:100%;margin-top:6px">Authenticate</button>
         <div class="l" style="margin:16px 0 6px">Quick login presets</div>
         <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:14px">
@@ -1445,7 +1029,44 @@ async function draw() {
         </div>
         <button data-a="reset" style="width:100%">Reset demo environment</button>
       `}
+      ${DEMO_SHOW_MODAL ? `
+        <div class="demo-mode-modal-backdrop" data-a="close-demo-prompt">
+          <div class="demo-mode-card" data-a="demo-card-no-close">
+            <div class="l" style="color:var(--ac);margin-bottom:6px">AUTOMATED APPLICATION DEMONSTRATION</div>
+            <h3 style="margin:0 0 10px;font-size:19px">Choose Demonstration Mode</h3>
+            <p class="mu" style="font-size:13px;line-height:1.5;margin-bottom:16px">
+              Executes the genuine SIH26237 defense provenance pipeline across SENDER, RECIPIENT, and INVESTIGATOR roles using a temporary isolated memory enclave. Zero demo data persists.
+            </p>
+
+            <button type="button" class="demo-mode-option" data-a="start-demo-mode" data-v="guided">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                <h4 style="color:var(--ac)">▶ AUTO DEMO</h4>
+                <span class="tag ok" style="font-size:10.5px">Automated (8s / Step)</span>
+              </div>
+              <p>Performs real operations automatically, pausing briefly at meaningful stages. You can pause/resume or manually advance at any time.</p>
+            </button>
+
+            <button type="button" class="demo-mode-option" data-a="start-demo-mode" data-v="self">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+                <h4>👤 STEP-BY-STEP</h4>
+                <span class="tag" style="font-size:10.5px">Manual Advance</span>
+              </div>
+              <p>Executes the same real operations step by step, waiting for you to press Next. Back is available to review preceding steps.</p>
+            </button>
+
+            <div style="display:flex;justify-content:flex-end;margin-top:20px">
+              <button type="button" class="s" data-a="close-demo-prompt">Cancel</button>
+            </div>
+          </div>
+        </div>
+      ` : ''}
     </div>`;
+
+    if (DEMO_SESSION_ID && DEMO_DATA) {
+      renderDemoSpotlight();
+    } else {
+      removeDemoSpotlight();
+    }
     return;
   }
 
@@ -1472,7 +1093,7 @@ async function draw() {
     ? `<span class="chip a" style="color:var(--ok);border-color:var(--ok)">CRYPTO: ${e(ENV.crypto.signatureAlgorithm)}</span>`
     : `<span class="chip a" title="${e(ENV?.crypto?.details || '')}">CRYPTO: ${e(ENV?.crypto?.signatureAlgorithm || 'Development Provider')}</span>`;
   const ledgerBadge = `<span class="chip" style="color:var(--mu)" title="${e(ENV?.ledger?.details || '')}">LEDGER: ${e(ENV?.ledger?.provider || 'Permissioned DLT')}</span>`;
-  A.innerHTML = `<aside><h1>PROVENANCE</h1>${nav.map(n => `<button class="nv ${V === n[0] ? 'on' : ''}" data-a="nav" data-v="${n[0]}">${n[1]}</button>`).join('')}</aside><main><div class="top">${modeBadge}${deployBadge}${cryptoBadge}${ledgerBadge}<span class="chip" style="color:var(--tx);border-color:var(--bd-light);background:var(--pn-elevated)"><span style="display:inline-block;width:6px;height:6px;background:var(--ok);border-radius:50%;margin-right:6px;box-shadow:0 0 6px var(--ok)"></span><span id="live-clock" class="m">${timeStr}</span></span><span style="flex:1"></span><span>${e(ME?.name || '')} <span class="mu m">${e(ME?.id || '')} · ${e(ME?.role || '')}</span></span><button class="s" data-a="show-change-pw">Key &amp; Password</button><button class="s" data-a="tour-start" title="Replay Guided Walkthrough">Tour 🧭</button><button data-a="logout">Sign out</button></div>${OUT?.showChangePw ? `
+  A.innerHTML = `<aside><h1>PROVENANCE</h1>${nav.map(n => `<button class="nv ${V === n[0] ? 'on' : ''}" data-a="nav" data-v="${n[0]}">${n[1]}</button>`).join('')}</aside><main><div class="top">${modeBadge}${deployBadge}${cryptoBadge}${ledgerBadge}<span class="chip" style="color:var(--tx);border-color:var(--bd-light);background:var(--pn-elevated)"><span style="display:inline-block;width:6px;height:6px;background:var(--ok);border-radius:50%;margin-right:6px;box-shadow:0 0 6px var(--ok)"></span><span id="live-clock" class="m">${timeStr}</span></span><span style="flex:1"></span><span>${e(ME?.name || '')} <span class="mu m">${e(ME?.id || '')} · ${e(ME?.role || '')}</span></span><button class="s" data-a="show-change-pw">Key &amp; Password</button><button data-a="logout">Sign out</button></div>${OUT?.showChangePw ? `
   <div class="c" style="margin-bottom:20px;border-left:4px solid var(--ac)">
     <div class="l" style="color:var(--ac)">Change Password &amp; Re-Seal Private Key Envelopes</div>
     <p class="mu" style="font-size:12px;margin:4px 0 12px">Re-derives your scrypt Key Encryption Key (KEK) and re-encrypts all your signing &amp; KEM private keys under your new secret. All previous login sessions are invalidated.</p>
@@ -1487,8 +1108,10 @@ async function draw() {
     </div>
   </div>` : ''}${body}</main>`;
 
-  if (TOUR_MODAL || TOUR_ACTIVE) {
-    renderTour();
+  if (DEMO_SESSION_ID && DEMO_DATA) {
+    renderDemoSpotlight();
+  } else {
+    removeDemoSpotlight();
   }
 
   if (TARGET_HIGHLIGHT && V === 'led') {
@@ -1499,217 +1122,417 @@ async function draw() {
   }
 }
 
-function renderTour() {
-  const old = $('tour-root');
-  if (old) old.remove();
+let DEMO_SPOTLIGHT_TARGET_SEL = null;
+let DEMO_SPOTLIGHT_FALLBACK_SEL = null;
+let DEMO_SPOTLIGHT_META = null;
+let DEMO_SPOTLIGHT_REPOSITION_BOUND = false;
 
-  if (TOUR_MODAL === 'welcome') {
-    const d = document.createElement('div');
-    d.id = 'tour-root';
-    d.innerHTML = `
-      <div class="tour-backdrop"></div>
-      <div class="tour-center-modal">
-        <div class="l" style="color:var(--ac);margin-bottom:8px">SECURITY ENCLAVE · OPERATOR ONBOARDING</div>
-        <h3>WELCOME TO THE WORKSPACE</h3>
-        <p>Let's take a quick interactive walkthrough to show you where everything is and how to operate the defense console interface.</p>
-        <div class="tour-center-actions">
-          <button class="hiw-hero-btn primary" data-a="tour-begin" style="font-size:13px;padding:9px 18px">▶ START TOUR</button>
-          <button class="s" data-a="tour-skip" style="font-size:13px;padding:9px 16px">SKIP FOR NOW</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(d);
-    return;
-  }
+function updateSpotlightPosition() {
+  const root = $('demo-spotlight-root');
+  if (!root || !DEMO_SPOTLIGHT_TARGET_SEL) return;
 
-  if (TOUR_MODAL === 'done') {
-    const d = document.createElement('div');
-    d.id = 'tour-root';
-    d.innerHTML = `
-      <div class="tour-backdrop"></div>
-      <div class="tour-center-modal">
-        <div class="l" style="color:var(--ok);margin-bottom:8px">ONBOARDING COMPLETED</div>
-        <h3>YOU'RE READY TO OPERATE</h3>
-        <p>You now know how documents are protected, authorized, committed to the ledger, and forensically attributed. You can replay this tour anytime from the top bar.</p>
-        <div class="tour-center-actions">
-          <button class="hiw-hero-btn primary" data-a="tour-close" style="font-size:13px;padding:9px 24px">EXPLORE WORKSPACE</button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(d);
-    return;
-  }
-
-  if (!TOUR_ACTIVE) return;
-
-  const steps = getTourSteps();
-  const step = steps[TOUR_STEP];
-  if (!step) {
-    TOUR_ACTIVE = false;
-    TOUR_MODAL = 'done';
-    renderTour();
-    return;
-  }
-
-  // If user navigated away from the required view for this tour step, cancel tour
-  if (step.view && V !== step.view) {
-    TOUR_ACTIVE = false;
-    document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
-    return;
-  }
-
-  let el = document.querySelector(step.target);
-  if (!el && step.fallback) el = document.querySelector(step.fallback);
+  let el = document.querySelector(DEMO_SPOTLIGHT_TARGET_SEL);
+  if (!el && DEMO_SPOTLIGHT_FALLBACK_SEL) el = document.querySelector(DEMO_SPOTLIGHT_FALLBACK_SEL);
   if (!el) el = document.querySelector('main');
+  if (!el) return;
 
-  // Clear previous highlighted styles
-  document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
-  if (el) el.classList.add('tour-highlighted-element');
-
-  // 1. Scroll target comfortably into view if offscreen or partially clipped
-  if (el) {
-    const initRect = el.getBoundingClientRect();
-    if (initRect.top < 60 || initRect.bottom > window.innerHeight - 40) {
-      el.scrollIntoView({ behavior: 'instant', block: 'center' });
-    }
-  }
-
-  // 2. Measure target geometry after scroll has completed
-  const rect = el ? el.getBoundingClientRect() : { top: 120, left: 100, width: 300, height: 100, right: 400, bottom: 220 };
-
-  const d = document.createElement('div');
-  d.id = 'tour-root';
-
-  const isAutoplay = Boolean(TOUR_AUTOPLAY);
-  const durationMs = getTourStepDuration(step);
-
-  // 3. Dynamic layout evaluation: test candidate placements (Right, Left, Below, Above, and Docked Right for full-width)
+  const rect = el.getBoundingClientRect();
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const tipWidth = Math.min(360, Math.max(300, vw - 40));
-  const estimatedTipHeight = 280;
-  const margin = 16;
+  const isMobile = vw <= 768;
+  const margin = isMobile ? 8 : 14;
+
+  const cutout = root.querySelector('.demo-spotlight-cutout');
+  const pill = root.querySelector('.demo-spotlight-pill');
+  if (!cutout || !pill) return;
+
+  // Position cutout smoothly around target using fixed viewport coordinates
+  cutout.style.top = `${rect.top - 4}px`;
+  cutout.style.left = `${Math.max(0, rect.left - 4)}px`;
+  cutout.style.width = `${Math.min(vw, rect.width + 8)}px`;
+  cutout.style.height = `${rect.height + 8}px`;
+
+  if (isMobile) {
+    // Docked at bottom of screen on mobile so it never obscures the target or expands horizontal scroll
+    pill.style.position = 'fixed';
+    pill.style.top = 'auto';
+    pill.style.bottom = '12px';
+    pill.style.left = '12px';
+    pill.style.right = '12px';
+    pill.style.width = 'calc(100vw - 24px)';
+    pill.style.maxWidth = 'calc(100vw - 24px)';
+    return;
+  }
+
+  // Desktop / Tablet dynamic floating calculation using fixed viewport coordinates
+  pill.style.position = 'fixed';
+  pill.style.bottom = 'auto';
+  pill.style.right = 'auto';
+  const pillWidth = Math.min(360, Math.max(280, vw - 40));
+  pill.style.width = `${pillWidth}px`;
+  pill.style.maxWidth = `${pillWidth}px`;
+  const estimatedPillHeight = pill.offsetHeight || 160;
 
   const roomRight = vw - rect.right;
   const roomLeft = rect.left;
   const roomBelow = vh - rect.bottom;
   const roomAbove = rect.top;
 
-  let tipLeft = 20;
-  let tipTop = 80;
-  let arrowClass = 'top';
-  let arrowOffset = 30; // pixels along the tooltip edge
-
-  // Determine if target spans most of the screen width (e.g. main, .c.wrapx tables, .g2)
+  let pillLeft = 20;
+  let pillTop = 80;
   const isWideTarget = rect.width > vw * 0.65;
-  const isTallTarget = rect.height > vh * 0.65;
 
-  if (roomRight >= tipWidth + margin + 10 && !isWideTarget) {
-    // Placement 1: RIGHT
-    arrowClass = 'left';
-    tipLeft = rect.right + margin;
-    // Align tooltip center with target center, clamped inside viewport
-    const idealTop = (rect.top + rect.height / 2) - estimatedTipHeight / 2;
-    tipTop = Math.max(70, Math.min(vh - estimatedTipHeight - 20, idealTop));
-    // Position arrow pointing directly to target center
-    const targetCenterY = rect.top + rect.height / 2;
-    arrowOffset = Math.max(20, Math.min(estimatedTipHeight - 30, targetCenterY - tipTop));
-  } else if (roomLeft >= tipWidth + margin + 10 && !isWideTarget) {
-    // Placement 2: LEFT
-    arrowClass = 'right';
-    tipLeft = rect.left - tipWidth - margin;
-    const idealTop = (rect.top + rect.height / 2) - estimatedTipHeight / 2;
-    tipTop = Math.max(70, Math.min(vh - estimatedTipHeight - 20, idealTop));
-    const targetCenterY = rect.top + rect.height / 2;
-    arrowOffset = Math.max(20, Math.min(estimatedTipHeight - 30, targetCenterY - tipTop));
-  } else if (roomBelow >= estimatedTipHeight + margin + 10 && !isTallTarget) {
-    // Placement 3: BELOW
-    arrowClass = 'top';
-    tipTop = rect.bottom + margin;
-    // Align tooltip center with target center, clamped inside viewport
-    const idealLeft = (rect.left + rect.width / 2) - tipWidth / 2;
-    tipLeft = Math.max(20, Math.min(vw - tipWidth - 20, idealLeft));
-    const targetCenterX = rect.left + rect.width / 2;
-    arrowOffset = Math.max(24, Math.min(tipWidth - 36, targetCenterX - tipLeft));
-  } else if (roomAbove >= estimatedTipHeight + margin + 10 && !isTallTarget) {
-    // Placement 4: ABOVE
-    arrowClass = 'bottom';
-    tipTop = rect.top - estimatedTipHeight - margin;
-    const idealLeft = (rect.left + rect.width / 2) - tipWidth / 2;
-    tipLeft = Math.max(20, Math.min(vw - tipWidth - 20, idealLeft));
-    const targetCenterX = rect.left + rect.width / 2;
-    arrowOffset = Math.max(24, Math.min(tipWidth - 36, targetCenterX - tipLeft));
+  if (roomRight >= pillWidth + margin + 12 && !isWideTarget) {
+    pillLeft = rect.right + margin;
+    const idealTop = (rect.top + rect.height / 2) - estimatedPillHeight / 2;
+    pillTop = Math.max(70, Math.min(vh - estimatedPillHeight - 20, idealTop));
+  } else if (roomLeft >= pillWidth + margin + 12 && !isWideTarget) {
+    pillLeft = rect.left - pillWidth - margin;
+    const idealTop = (rect.top + rect.height / 2) - estimatedPillHeight / 2;
+    pillTop = Math.max(70, Math.min(vh - estimatedPillHeight - 20, idealTop));
+  } else if (roomBelow >= estimatedPillHeight + margin + 10) {
+    pillTop = rect.bottom + margin;
+    const idealLeft = (rect.left + rect.width / 2) - pillWidth / 2;
+    pillLeft = Math.max(16, Math.min(vw - pillWidth - 16, idealLeft));
+  } else if (roomAbove >= estimatedPillHeight + margin + 10) {
+    pillTop = rect.top - estimatedPillHeight - margin;
+    const idealLeft = (rect.left + rect.width / 2) - pillWidth / 2;
+    pillLeft = Math.max(16, Math.min(vw - pillWidth - 16, idealLeft));
   } else {
-    // Large container fallback: position in right-hand overlay dock or bottom-right negative space
-    arrowClass = 'none';
-    tipLeft = Math.max(20, vw - tipWidth - 30);
-    tipTop = Math.max(75, Math.min(vh - estimatedTipHeight - 25, rect.top + 20));
+    pillLeft = Math.max(16, vw - pillWidth - 24);
+    pillTop = Math.max(75, Math.min(vh - estimatedPillHeight - 24, rect.top + 16));
   }
 
-  // Arrow style attribute for dynamic pointer alignment
-  const arrowStyle = (arrowClass === 'left' || arrowClass === 'right')
-    ? `top:${Math.round(arrowOffset)}px;`
-    : `left:${Math.round(arrowOffset)}px;`;
+  pill.style.top = `${pillTop}px`;
+  pill.style.left = `${pillLeft}px`;
+}
 
-  d.innerHTML = `
-    <div class="tour-spotlight-box" style="
-      top: ${rect.top - 4 + window.scrollY}px;
-      left: ${rect.left - 4}px;
-      width: ${rect.width + 8}px;
-      height: ${rect.height + 8}px;
-    "></div>
-    <div class="tour-tooltip-card" style="top: ${tipTop + window.scrollY}px; left: ${tipLeft}px; width: ${tipWidth}px">
-      ${isAutoplay ? `<div class="tour-auto-progress-bar"><div class="tour-auto-progress-fill" style="animation-duration:${durationMs}ms"></div></div>` : ''}
-      ${arrowClass !== 'none' ? `<div class="tour-pointer-arrow ${arrowClass}" style="${arrowStyle}"></div>` : ''}
-      <div class="tour-header">
-        <span class="tour-step-tag">STEP ${TOUR_STEP + 1} OF ${steps.length}${isAutoplay ? ` · AUTO (${Math.round(durationMs / 1000)}s)` : ''}</span>
-        <button type="button" class="s" data-a="tour-skip" style="font-size:10.5px;padding:2px 6px">Skip</button>
-      </div>
-      <h4 class="tour-title">${e(step.title)}</h4>
-      <div class="tour-desc">${e(step.desc)}</div>
-      <div class="tour-why-box">
-        <b>Why it matters:</b>
-        ${e(step.why)}
-      </div>
-      <div class="tour-footer">
-        <div style="display:flex;gap:6px;align-items:center">
-          <button class="s" data-a="tour-back" ${TOUR_STEP === 0 ? 'disabled' : ''}>◀ Back</button>
-          <button class="s tour-auto-btn ${isAutoplay ? 'active' : ''}" data-a="tour-toggle-auto" title="${isAutoplay ? 'Pause automated walkthrough' : 'Automatically advance after reading'}">
-            ${isAutoplay ? '⏸ Pause' : '▶ Auto'}
-          </button>
-        </div>
-        <div class="tour-footer-right">
-          <button class="p s" data-a="tour-next">${TOUR_STEP === steps.length - 1 ? 'Finish Tour ✓' : 'Next ▶'}</button>
-        </div>
-      </div>
-    </div>
-  `;
-  document.body.appendChild(d);
+function ensureSpotlightListeners() {
+  if (DEMO_SPOTLIGHT_REPOSITION_BOUND) return;
+  DEMO_SPOTLIGHT_REPOSITION_BOUND = true;
+  window.addEventListener('resize', () => {
+    if (DEMO_SESSION_ID && DEMO_SPOTLIGHT_TARGET_SEL) updateSpotlightPosition();
+  }, { passive: true });
+  window.addEventListener('scroll', () => {
+    if (DEMO_SESSION_ID && DEMO_SPOTLIGHT_TARGET_SEL) updateSpotlightPosition();
+  }, { passive: true });
+}
 
-  if (isAutoplay) {
-    scheduleTourAutoplay(durationMs);
+function removeDemoSpotlight() {
+  DEMO_SPOTLIGHT_TARGET_SEL = null;
+  DEMO_SPOTLIGHT_FALLBACK_SEL = null;
+  DEMO_SPOTLIGHT_META = null;
+  const old = $('demo-spotlight-root');
+  if (old) old.remove();
+  document.querySelectorAll('.demo-focused-target').forEach(n => n.classList.remove('demo-focused-target'));
+}
+
+function focusElement(selector, fallbackSelector, meta = {}) {
+  document.querySelectorAll('.demo-focused-target').forEach(n => n.classList.remove('demo-focused-target'));
+  if (!selector) {
+    removeDemoSpotlight();
+    return;
+  }
+
+  ensureSpotlightListeners();
+  DEMO_SPOTLIGHT_TARGET_SEL = selector;
+  DEMO_SPOTLIGHT_FALLBACK_SEL = fallbackSelector;
+  DEMO_SPOTLIGHT_META = meta;
+
+  let el = document.querySelector(selector);
+  if (!el && fallbackSelector) el = document.querySelector(fallbackSelector);
+  if (!el) el = document.querySelector('main');
+  if (!el) return;
+
+  el.classList.add('demo-focused-target');
+
+  // Scroll into view comfortably if needed
+  const initRect = el.getBoundingClientRect();
+  if (initRect.top < 70 || initRect.bottom > window.innerHeight - 50) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  let root = $('demo-spotlight-root');
+  if (!root) {
+    root = document.createElement('div');
+    root.id = 'demo-spotlight-root';
+    root.innerHTML = `
+      <div class="demo-spotlight-cutout"></div>
+      <div class="demo-spotlight-pill"></div>
+    `;
+    document.body.appendChild(root);
+  }
+
+  const pill = root.querySelector('.demo-spotlight-pill');
+  if (pill) {
+    const data = DEMO_DATA;
+    const isLast = data && data.step >= data.totalSteps;
+    const isPaused = DEMO_AUTOPLAY === null;
+    const role = (meta.role || data?.meta?.role || 'system').toLowerCase();
+    const roleLabel = (meta.role || data?.meta?.role || 'SYSTEM').toUpperCase();
+    const stepNum = data ? data.step : 1;
+    const totalSteps = data ? data.totalSteps : 10;
+
+    const contextText = meta.where || (meta.stage ? `${roleLabel} · ${meta.stage}` : roleLabel);
+    const whatText = meta.what || meta.explanation || '';
+    const whyText = meta.why || '';
+    const nextText = meta.next || '';
+
+    pill.innerHTML = `
+      <div class="demo-spotlight-header">
+        <div class="demo-spotlight-header-meta">
+          <span class="demo-spotlight-role-badge role-${role}">${e(roleLabel)}</span>
+          <span class="demo-spotlight-step-tag">Step ${stepNum} of ${totalSteps}</span>
+        </div>
+        <button type="button" class="demo-spotlight-close-btn" data-a="demo-exit" title="Exit live demo">✕</button>
+      </div>
+      <div class="demo-spotlight-pill-where">📍 ${e(contextText)}</div>
+      <div class="demo-spotlight-pill-title">${e(meta.title || 'FOCUS')}</div>
+      ${whatText ? `<div class="demo-spotlight-pill-text">${e(whatText)}</div>` : ''}
+      ${whyText ? `<div class="demo-spotlight-pill-why"><b>Why:</b> ${e(whyText)}</div>` : ''}
+      ${nextText ? `<div class="demo-spotlight-pill-next"><b>Next:</b> ${e(nextText)}</div>` : ''}
+      <div class="demo-spotlight-controls">
+        <button type="button" class="s" data-a="demo-prev" ${stepNum <= 1 ? 'disabled' : ''}>← Prev</button>
+        <button type="button" class="s" data-a="demo-toggle-pause">
+          <span id="demo-timer-text">${DEMO_AUTOPLAY ? `⏸ ${DEMO_TIME_LEFT}s` : '▶ Play'}</span>
+        </button>
+        <button type="button" class="p s" data-a="demo-next" style="margin-left:auto">${isLast ? 'Finish ✓' : 'Next →'}</button>
+      </div>
+    `;
+  }
+
+  // Position immediately and again on next frame for layout stability
+  updateSpotlightPosition();
+  requestAnimationFrame(updateSpotlightPosition);
+}
+
+let DEMO_MICRO_RUNNING = false;
+let DEMO_MICRO_TIMEOUT = null;
+
+function clearDemoMicroStep() {
+  DEMO_MICRO_RUNNING = false;
+  if (DEMO_MICRO_TIMEOUT) {
+    clearTimeout(DEMO_MICRO_TIMEOUT);
+    DEMO_MICRO_TIMEOUT = null;
   }
 }
 
-function scheduleTourAutoplay(ms) {
-  stopTourAutoplay();
-  TOUR_AUTOPLAY = setTimeout(() => {
-    TOUR_AUTOPLAY = null;
-    const steps = getTourSteps();
-    if (TOUR_STEP < steps.length - 1) {
-      TOUR_STEP++;
-      if (steps[TOUR_STEP] && steps[TOUR_STEP].view) V = steps[TOUR_STEP].view;
-      // Mark autoplay active so next step continues autoplaying
-      TOUR_AUTOPLAY = true;
-      draw();
-    } else {
-      stopTourAutoplay();
-      TOUR_ACTIVE = false;
-      TOUR_MODAL = 'done';
-      localStorage.setItem('sih_tour_done_' + (ME ? ME.id : 'anon'), '1');
-      draw();
+async function typeTextVisually(inputEl, text, checkStillActive, speedMs = 28) {
+  if (!inputEl) return;
+  inputEl.focus();
+  inputEl.value = '';
+  inputEl.dispatchEvent(new Event('focus', { bubbles: true }));
+  for (let i = 0; i < text.length; i++) {
+    if (!checkStillActive()) return;
+    inputEl.value += text[i];
+    inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(r => { DEMO_MICRO_TIMEOUT = setTimeout(r, speedMs); });
+  }
+  if (checkStillActive()) {
+    inputEl.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+}
+
+async function clickElementVisually(el, checkStillActive) {
+  if (!el) return;
+  el.classList.add('demo-element-active');
+  await new Promise(r => { DEMO_MICRO_TIMEOUT = setTimeout(r, 450); });
+  if (checkStillActive()) {
+    el.classList.remove('demo-element-active');
+  }
+}
+
+async function runStepMicroInteractions(stepNum) {
+  clearDemoMicroStep();
+  if (!DEMO_SESSION_ID || !DEMO_DATA) return;
+  const currentSession = DEMO_SESSION_ID;
+  DEMO_MICRO_RUNNING = true;
+
+  const wait = (ms) => new Promise(res => {
+    DEMO_MICRO_TIMEOUT = setTimeout(res, ms);
+  });
+
+  const checkStillActive = () => DEMO_SESSION_ID === currentSession && DEMO_MICRO_RUNNING;
+  const meta = DEMO_DATA.meta || {};
+  const spot = meta.spotlight || {};
+  const target = spot.target || 'main';
+  const fallback = spot.fallback || 'main';
+
+  try {
+    // Focus the single target for this step immediately
+    focusElement(target, fallback, {
+      role: meta.role,
+      title: spot.title,
+      tag: spot.tag,
+      explanation: spot.explanation,
+      why: spot.why
+    });
+
+    await wait(220);
+    if (!checkStillActive()) return;
+
+    // Execute visible micro-action directly on the spotlighted element
+    if (stepNum === 1) {
+      // Step 1: Type sender username character-by-character into #u
+      const u = $('u');
+      const text = DEMO_DATA.actors?.sender?.username || 'sender';
+      await typeTextVisually(u, text, checkStillActive, 45);
+    } else if (stepNum === 2) {
+      // Step 2: Ensure username is set and type password character-by-character into #p
+      const u = $('u');
+      if (u) u.value = DEMO_DATA.actors?.sender?.username || 'sender';
+      const p = $('p');
+      const text = DEMO_DATA.actors?.sender?.password || 'demo1234';
+      await typeTextVisually(p, text, checkStillActive, 45);
+    } else if (stepNum === 3) {
+      // Step 3: Flash authenticate button
+      const u = $('u');
+      if (u) u.value = DEMO_DATA.actors?.sender?.username || 'sender';
+      const p = $('p');
+      if (p) p.value = DEMO_DATA.actors?.sender?.password || 'demo1234';
+      const btn = document.querySelector('button[data-a="login"]');
+      await clickElementVisually(btn, checkStillActive);
+    } else if (stepNum === 5) {
+      // Step 5: Highlight navigation to docs
+      const btn = document.querySelector('aside button[data-v="docs"]');
+      await clickElementVisually(btn, checkStillActive);
+    } else if (stepNum === 7) {
+      // Step 7: Type document title into #dn
+      const dn = $('dn');
+      await typeTextVisually(dn, 'Operation Falcon - Operational Brief', checkStillActive, 20);
+    } else if (stepNum === 8) {
+      // Step 8: Select SECRET classification
+      const dc = $('dc');
+      if (dc) {
+        dc.focus();
+        dc.value = 'SECRET';
+        dc.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    } else if (stepNum === 9) {
+      // Step 9: Type payload content into #dt
+      const dt = $('dt');
+      const payload = 'OPERATION FALCON — v1.0\nClassified Defense Brief.\n1. Objective: Secure northern logistics corridor by Q4.\n2. Rotation: Update post-quantum channel keys every 48 hours.\nEnd of classified brief.';
+      await typeTextVisually(dt, payload, checkStillActive, 10);
+    } else if (stepNum === 10) {
+      // Step 10: Check recipient checkbox
+      const chk = document.querySelector('#recipients-group input[type="checkbox"]');
+      if (chk) {
+        chk.focus();
+        chk.checked = true;
+        chk.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+    } else if (stepNum === 11) {
+      // Step 11: Flash encrypt & anchor button
+      const btn = document.querySelector('button[data-a="newdoc"]');
+      await clickElementVisually(btn, checkStillActive);
+    } else if (stepNum === 13) {
+      // Step 13: Flash navigation to ledger
+      const btn = document.querySelector('aside button[data-v="led"]');
+      await clickElementVisually(btn, checkStillActive);
+    } else if (stepNum === 15) {
+      // Step 15: Flash sender logout
+      const btn = document.querySelector('.top button[data-a="logout"]');
+      await clickElementVisually(btn, checkStillActive);
+    } else if (stepNum === 16) {
+      // Step 16: Type recipient username
+      const u = $('u');
+      const text = DEMO_DATA.actors?.recipient?.username || 'aarav';
+      await typeTextVisually(u, text, checkStillActive, 45);
+    } else if (stepNum === 17) {
+      // Step 17: Type recipient password while ensuring username field shows recipient username
+      const u = $('u');
+      if (u) u.value = DEMO_DATA.actors?.recipient?.username || 'aarav';
+      const p = $('p');
+      const text = DEMO_DATA.actors?.recipient?.password || 'demo1234';
+      await typeTextVisually(p, text, checkStillActive, 45);
+    } else if (stepNum === 18) {
+      // Step 18: Flash recipient authenticate button
+      const u = $('u');
+      if (u) u.value = DEMO_DATA.actors?.recipient?.username || 'aarav';
+      const p = $('p');
+      if (p) p.value = DEMO_DATA.actors?.recipient?.password || 'demo1234';
+      const btn = document.querySelector('button[data-a="login"]');
+      await clickElementVisually(btn, checkStillActive);
+    } else if (stepNum === 19) {
+      // Step 19: Flash recipient nav docs
+      const btn = document.querySelector('aside button[data-v="docs"]');
+      await clickElementVisually(btn, checkStillActive);
+    } else if (stepNum === 20) {
+      // Step 20: Flash decrypt button
+      const btn = document.querySelector('main .g2 .c:first-of-type button[data-a="dec"]');
+      await clickElementVisually(btn, checkStillActive);
+    } else if (stepNum === 22) {
+      // Step 22: Flash nav sessions
+      const btn = document.querySelector('aside button[data-v="sess"]');
+      await clickElementVisually(btn, checkStillActive);
+    } else if (stepNum === 24) {
+      // Step 24: Flash simulate leak button
+      const btn = document.querySelector('main .c.wrapx table tr:nth-child(2) button[data-a="leak"]');
+      await clickElementVisually(btn, checkStillActive);
+    } else if (stepNum === 25) {
+      // Step 25: Flash recipient logout
+      const btn = document.querySelector('.top button[data-a="logout"]');
+      await clickElementVisually(btn, checkStillActive);
+    } else if (stepNum === 26) {
+      // Step 26: Type investigator username
+      const u = $('u');
+      const text = DEMO_DATA.actors?.investigator?.username || 'forensic';
+      await typeTextVisually(u, text, checkStillActive, 45);
+    } else if (stepNum === 27) {
+      // Step 27: Type investigator password while ensuring username field shows investigator username
+      const u = $('u');
+      if (u) u.value = DEMO_DATA.actors?.investigator?.username || 'forensic';
+      const p = $('p');
+      const text = DEMO_DATA.actors?.investigator?.password || 'demo1234';
+      await typeTextVisually(p, text, checkStillActive, 45);
+    } else if (stepNum === 28) {
+      // Step 28: Flash investigator authenticate button
+      const u = $('u');
+      if (u) u.value = DEMO_DATA.actors?.investigator?.username || 'forensic';
+      const p = $('p');
+      if (p) p.value = DEMO_DATA.actors?.investigator?.password || 'demo1234';
+      const btn = document.querySelector('button[data-a="login"]');
+      await clickElementVisually(btn, checkStillActive);
+    } else if (stepNum === 29) {
+      // Step 29: Flash nav investigations
+      const btn = document.querySelector('aside button[data-v="inv"]');
+      await clickElementVisually(btn, checkStillActive);
+    } else if (stepNum === 31) {
+      // Step 31: Flash investigate leak button
+      const btn = document.querySelector('main .c:first-of-type button[data-a="run"]');
+      await clickElementVisually(btn, checkStillActive);
+    } else if (stepNum === 36) {
+      // Step 36: Flash goto ledger block button
+      const btn = document.querySelector('button[data-a="goto-ledger-block"]');
+      if (btn) btn.classList.add('demo-element-active');
     }
-  }, ms);
+  } catch {}
+  finally {
+    if (DEMO_SESSION_ID === currentSession) {
+      DEMO_MICRO_RUNNING = false;
+    }
+  }
+}
+
+function renderDemoSpotlight() {
+  if (!DEMO_SESSION_ID || !DEMO_DATA) {
+    removeDemoSpotlight();
+    clearDemoMicroStep();
+    return;
+  }
+  const meta = DEMO_DATA.meta || {};
+  const spot = meta.spotlight;
+  if (!spot) {
+    removeDemoSpotlight();
+    clearDemoMicroStep();
+    return;
+  }
+
+  // Defer slightly to ensure page components and async tables finish rendering
+  setTimeout(() => {
+    if (!DEMO_SESSION_ID || !DEMO_DATA) return;
+    runStepMicroInteractions(DEMO_DATA.step);
+  }, 50);
 }
 
 function renderPublicHowItWorks() {
@@ -1901,6 +1724,135 @@ function renderPublicHowItWorks() {
   </div>`;
 }
 
+function getStepComprehensionSeconds(stepNum) {
+  // Critical moments get longer holds for comprehension
+  if (stepNum === 3 || stepNum === 15 || stepNum === 18 || stepNum === 25 || stepNum === 28) return 6; // Role transitions / logins
+  if (stepNum === 11 || stepNum === 12) return 7; // Bulk encryption & seal
+  if (stepNum === 20 || stepNum === 21) return 8; // Decryption & recovered plaintext preview
+  if (stepNum === 24) return 6; // Leak simulation
+  if (stepNum === 32 || stepNum === 33 || stepNum === 34 || stepNum === 35 || stepNum === 36) return 8; // Watermark extraction & verdict
+  return 5; // Standard form typing / navigation
+}
+
+function startDemoTimer(initialSeconds) {
+  if (DEMO_AUTOPLAY) {
+    clearInterval(DEMO_AUTOPLAY);
+    DEMO_AUTOPLAY = null;
+  }
+  const stepNum = DEMO_DATA ? DEMO_DATA.step : DEMO_STEP;
+  DEMO_TIME_LEFT = (typeof initialSeconds === 'number' && initialSeconds > 0)
+    ? initialSeconds
+    : getStepComprehensionSeconds(stepNum);
+
+  const timerEl = $('demo-timer-text');
+  if (timerEl) timerEl.textContent = `⏸ ${DEMO_TIME_LEFT}s`;
+
+  DEMO_AUTOPLAY = setInterval(async () => {
+    if (DEMO_MICRO_RUNNING) {
+      // Hold countdown while typing or button rippling is actively in flight
+      return;
+    }
+    if (DEMO_TIME_LEFT > 1) {
+      DEMO_TIME_LEFT--;
+      const el = $('demo-timer-text');
+      if (el) el.textContent = `⏸ ${DEMO_TIME_LEFT}s`;
+    } else {
+      if (DEMO_DATA && DEMO_DATA.step < DEMO_DATA.totalSteps) {
+        clearInterval(DEMO_AUTOPLAY);
+        DEMO_AUTOPLAY = null;
+        DEMO_STEP++;
+        await runDemoStep(DEMO_STEP);
+      } else {
+        clearInterval(DEMO_AUTOPLAY);
+        DEMO_AUTOPLAY = null;
+        draw();
+      }
+    }
+  }, 1000);
+}
+
+async function runDemoStep(stepNum) {
+  try {
+    clearDemoMicroStep();
+    if (DEMO_AUTOPLAY) {
+      clearInterval(DEMO_AUTOPLAY);
+      DEMO_AUTOPLAY = null;
+    }
+    DEMO_SHOW_TECH = false;
+    DEMO_DATA = await api('/demo/execute', 'POST', { sessionId: DEMO_SESSION_ID, step: stepNum });
+    ME = DEMO_DATA.currentUser || null;
+    T = DEMO_DATA.sessionToken || null;
+    if (DEMO_DATA.targetView) V = DEMO_DATA.targetView;
+    if (DEMO_DATA.environment) ENV = DEMO_DATA.environment;
+    if (DEMO_DATA.operationalOut) OUT = DEMO_DATA.operationalOut;
+    else OUT = null;
+
+    if (!ME) {
+      PUB_VIEW = 'login';
+    }
+
+    draw();
+
+    // Micro interactions will run via renderDemoSpotlight()
+    // Autoplay countdown starts after micro-action starts/settles
+    if (DEMO_MODE === 'guided' && stepNum <= DEMO_DATA.totalSteps) {
+      startDemoTimer(getStepComprehensionSeconds(stepNum));
+    }
+  } catch (e) {
+    toast('Error advancing demo: ' + e.message);
+  }
+}
+
+async function exitInteractiveDemo() {
+  if (DEMO_AUTOPLAY) {
+    clearInterval(DEMO_AUTOPLAY);
+    DEMO_AUTOPLAY = null;
+  }
+  clearDemoMicroStep();
+  removeDemoSpotlight();
+  const sid = DEMO_SESSION_ID;
+  DEMO_SESSION_ID = null;
+  DEMO_DATA = null;
+  DEMO_STEP = 1;
+  ME = null;
+  T = null;
+  OUT = null;
+  PUB_VIEW = 'login';
+  if (sid) {
+    try {
+      await api('/demo/stop', 'POST', { sessionId: sid });
+    } catch {}
+  }
+  toast('Demo session terminated. Isolated memory state discarded.');
+  return draw();
+}
+
+async function startInteractiveDemo(mode = 'self') {
+  DEMO_MODE = mode === 'guided' ? 'guided' : 'self';
+  DEMO_SHOW_MODAL = false;
+  DEMO_STEP = 1;
+  DEMO_SHOW_TECH = false;
+  if (DEMO_AUTOPLAY) { clearInterval(DEMO_AUTOPLAY); DEMO_AUTOPLAY = null; }
+  try {
+    const startRes = await api('/demo/start', 'POST', {});
+    DEMO_SESSION_ID = startRes.sessionId;
+    DEMO_DATA = await api('/demo/execute', 'POST', { sessionId: DEMO_SESSION_ID, step: 1 });
+    ME = DEMO_DATA.currentUser || null;
+    T = DEMO_DATA.sessionToken || null;
+    if (DEMO_DATA.targetView) V = DEMO_DATA.targetView;
+    if (DEMO_DATA.environment) ENV = DEMO_DATA.environment;
+    if (DEMO_DATA.operationalOut) OUT = DEMO_DATA.operationalOut;
+    else OUT = null;
+    PUB_VIEW = 'login';
+    if (DEMO_MODE === 'guided') {
+      startDemoTimer();
+    }
+    return draw();
+  } catch (e) {
+    toast('Failed to start demo: ' + e.message);
+  }
+}
+
 setInterval(() => {
   const c = $('live-clock');
   if (c) c.textContent = new Date().toISOString().replace('T', ' ').slice(0, 19) + ' UTC';
@@ -1913,6 +1865,83 @@ document.addEventListener('click', async ev => {
   const go = async f => { try { await f(); } catch (x) { OUT = null; toast(x.message); } draw(); };
   if (a === 'pub-how') { PUB_VIEW = 'how'; HIW_PLAY_MODE = 'hero'; HIW_STEP = 0; if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; } return draw(); }
   if (a === 'pub-login') { PUB_VIEW = 'login'; if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; } return draw(); }
+
+  // Interactive Demo Event Actions
+  if (a === 'start-demo') {
+    return startInteractiveDemo('self');
+  }
+  if (a === 'open-demo-prompt') {
+    DEMO_SHOW_MODAL = true;
+    return draw();
+  }
+  if (a === 'close-demo-prompt') {
+    DEMO_SHOW_MODAL = false;
+    return draw();
+  }
+  if (a === 'demo-card-no-close') {
+    return;
+  }
+  if (a === 'start-demo-mode') {
+    return startInteractiveDemo(v === 'self' ? 'self' : 'guided');
+  }
+  if (a === 'demo-next') {
+    if (DEMO_DATA && DEMO_DATA.step < DEMO_DATA.totalSteps) {
+      DEMO_STEP++;
+      return runDemoStep(DEMO_STEP);
+    } else {
+      // Exit when finished
+      return exitInteractiveDemo();
+    }
+  }
+  if (a === 'demo-prev') {
+    if (DEMO_STEP > 1) {
+      DEMO_STEP--;
+      return runDemoStep(DEMO_STEP);
+    }
+    return;
+  }
+  if (a === 'demo-toggle-pause') {
+    if (DEMO_AUTOPLAY) {
+      clearInterval(DEMO_AUTOPLAY);
+      DEMO_AUTOPLAY = null;
+      DEMO_MODE = 'self';
+    } else {
+      DEMO_MODE = 'guided';
+      startDemoTimer();
+    }
+    return draw();
+  }
+  if (a === 'demo-toggle-tech') {
+    DEMO_SHOW_TECH = !DEMO_SHOW_TECH;
+    return draw();
+  }
+  if (a === 'demo-restart') {
+    if (DEMO_AUTOPLAY) { clearInterval(DEMO_AUTOPLAY); DEMO_AUTOPLAY = null; }
+    clearDemoMicroStep();
+    removeDemoSpotlight();
+    try {
+      if (DEMO_SESSION_ID) await api('/demo/stop', 'POST', { sessionId: DEMO_SESSION_ID });
+      const startRes = await api('/demo/start', 'POST', {});
+      DEMO_SESSION_ID = startRes.sessionId;
+      DEMO_STEP = 1;
+      DEMO_DATA = await api('/demo/execute', 'POST', { sessionId: DEMO_SESSION_ID, step: 1 });
+      ME = DEMO_DATA.currentUser || null;
+      T = DEMO_DATA.sessionToken || null;
+      if (DEMO_DATA.targetView) V = DEMO_DATA.targetView;
+      if (DEMO_DATA.operationalOut) OUT = DEMO_DATA.operationalOut;
+      else OUT = null;
+      PUB_VIEW = 'login';
+      if (DEMO_MODE === 'guided') startDemoTimer();
+      toast('Demo restarted with clean isolated enclave');
+      return draw();
+    } catch (e) {
+      toast('Error restarting demo: ' + e.message);
+      return;
+    }
+  }
+  if (a === 'demo-exit') {
+    return exitInteractiveDemo();
+  }
   if (a === 'hiw-start') {
     HIW_PLAY_MODE = 'story';
     HIW_MODE = 'dist';
@@ -1969,65 +1998,6 @@ document.addEventListener('click', async ev => {
     HIW_SHOW_TECH = !HIW_SHOW_TECH;
     return draw();
   }
-  if (a === 'tour-start' || a === 'tour-begin') {
-    stopTourAutoplay();
-    TOUR_STEP = 0;
-    TOUR_MODAL = null;
-    TOUR_ACTIVE = true;
-    const steps = getTourSteps();
-    if (steps[0] && steps[0].view) V = steps[0].view;
-    return draw();
-  }
-  if (a === 'tour-toggle-auto') {
-    if (TOUR_AUTOPLAY) {
-      stopTourAutoplay();
-    } else {
-      TOUR_AUTOPLAY = true;
-    }
-    return draw();
-  }
-  if (a === 'tour-next') {
-    stopTourAutoplay();
-    const steps = getTourSteps();
-    if (TOUR_STEP < steps.length - 1) {
-      TOUR_STEP++;
-      if (steps[TOUR_STEP] && steps[TOUR_STEP].view) V = steps[TOUR_STEP].view;
-      return draw();
-    } else {
-      TOUR_ACTIVE = false;
-      TOUR_MODAL = 'done';
-      localStorage.setItem('sih_tour_done_' + (ME ? ME.id : 'anon'), '1');
-      return draw();
-    }
-  }
-  if (a === 'tour-back') {
-    stopTourAutoplay();
-    if (TOUR_STEP > 0) {
-      TOUR_STEP--;
-      const steps = getTourSteps();
-      if (steps[TOUR_STEP] && steps[TOUR_STEP].view) V = steps[TOUR_STEP].view;
-    }
-    return draw();
-  }
-  if (a === 'tour-skip') {
-    stopTourAutoplay();
-    TOUR_ACTIVE = false;
-    TOUR_MODAL = null;
-    localStorage.setItem('sih_tour_done_' + (ME ? ME.id : 'anon'), '1');
-    document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
-    const old = $('tour-root');
-    if (old) old.remove();
-    return;
-  }
-  if (a === 'tour-close') {
-    stopTourAutoplay();
-    TOUR_MODAL = null;
-    TOUR_ACTIVE = false;
-    document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
-    const old = $('tour-root');
-    if (old) old.remove();
-    return;
-  }
   if (a === 'switch-auth-tab') {
     PUB_VIEW = v;
     return draw();
@@ -2051,9 +2021,6 @@ document.addEventListener('click', async ev => {
     V = 'dash';
     OUT = null;
     toast(`Identity registered: ${r.user.id} (${r.user.role})`);
-    TOUR_MODAL = 'welcome';
-    TOUR_STEP = 0;
-    TOUR_ACTIVE = false;
   });
   if (a === 'login') return go(async () => {
     const r = await api('/auth/login', 'POST', { username: $('u').value, password: $('p').value });
@@ -2063,36 +2030,13 @@ document.addEventListener('click', async ev => {
     sessionStorage.setItem('me', JSON.stringify(ME));
     V = 'dash';
     OUT = null;
-    // Check if this user has completed the onboarding tour
-    const done = localStorage.getItem('sih_tour_done_' + ME.id);
-    if (!done) {
-      TOUR_MODAL = 'welcome';
-      TOUR_STEP = 0;
-      TOUR_ACTIVE = false;
-    } else {
-      TOUR_MODAL = null;
-      TOUR_ACTIVE = false;
-    }
   });
   if (a === 'reset') return go(async () => { await api('/reset', 'POST', {}); toast('Demo environment reset'); });
   if (a === 'logout') {
     try { await api('/auth/logout', 'POST', {}); } catch {}
-    stopTourAutoplay();
-    TOUR_ACTIVE = false;
-    TOUR_MODAL = null;
-    const old = $('tour-root');
-    if (old) old.remove();
     return signout();
   }
   if (a === 'nav') {
-    if (TOUR_ACTIVE || TOUR_MODAL) {
-      stopTourAutoplay();
-      TOUR_ACTIVE = false;
-      TOUR_MODAL = null;
-      document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
-      const old = $('tour-root');
-      if (old) old.remove();
-    }
     V = v;
     OUT = null;
     if (HIW_AUTOPLAY) { clearInterval(HIW_AUTOPLAY); HIW_AUTOPLAY = null; }
@@ -2127,14 +2071,6 @@ document.addEventListener('click', async ev => {
     return draw();
   }
   if (a === 'goto-ledger-block') {
-    if (TOUR_ACTIVE || TOUR_MODAL) {
-      stopTourAutoplay();
-      TOUR_ACTIVE = false;
-      TOUR_MODAL = null;
-      document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
-      const old = $('tour-root');
-      if (old) old.remove();
-    }
     V = 'led';
     const blk = el.dataset.block ? parseInt(el.dataset.block, 10) : null;
     const tx = el.dataset.tx || null;
@@ -2144,14 +2080,6 @@ document.addEventListener('click', async ev => {
     return draw();
   }
   if (a === 'filter-sess-by-doc') {
-    if (TOUR_ACTIVE || TOUR_MODAL) {
-      stopTourAutoplay();
-      TOUR_ACTIVE = false;
-      TOUR_MODAL = null;
-      document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
-      const old = $('tour-root');
-      if (old) old.remove();
-    }
     V = 'sess';
     FILTERS.sessDoc = v;
     return draw();

@@ -560,6 +560,13 @@ export function createApp({
     db, get net() { return net; }, reset: seed, register, login, logout, authenticate, changePassword, makeUser, createDocument, listDocuments, decrypt, revokeAuthorization, listSessions, createLeak, listLeaks, investigate, listInvestigations, txEvidence, ledgerBlocks, ledgerKeys, validators, validateLedger,
     rotateKey, revokeKey, identities, listUsers, createUser, toggleUserStatus, toggleValidator, resyncValidator, compromise, audit, dashboard, lab, user, demoMode: isDemoModeGated, mode: appMode, deploymentProfile: deployProfile, environment, unlockKey, activeKey, demoPassword,
     providers: { crypto: activeCrypto, watermark: activeWatermark, ledger: activeLedgerProvider, keystore: ks },
-    kekFor: (id, pw) => deriveKek(pw, user(id).kek_salt)
+    kekFor: (id, pw) => deriveKek(pw, user(id).kek_salt),
+    close: () => {
+      try { if (net) net.close(); } catch {}
+      try { if (db) db.close(); } catch {}
+      if (mem && ksDir && fs.existsSync(ksDir)) {
+        try { fs.rmSync(ksDir, { recursive: true, force: true }); } catch {}
+      }
+    }
   };
 }
