@@ -65,6 +65,250 @@ const NAV = {
 };
 const evBox = x => `<table>${kv(`Signature (${e(ENV?.crypto?.isPostQuantum ? ENV.crypto.signatureAlgorithm : 'Recipient Key')})`, tag(x.signatureValid))}${kv('Transaction', tag(x.transactionValid))}${kv('Block + approvals', tag(x.blockValid, 'VALID', 'INVALID') + ` <span class="m mu">${x.approvals} valid approvals</span>`)}${kv('Chain', tag(x.chainValid))}${kv('Validator agreement', tag(x.validatorAgreement.agreed, 'AGREED', 'NO QUORUM') + ` <span class="m mu">${x.validatorAgreement.inSync}/${x.validatorAgreement.total} in sync${x.validatorAgreement.diverged.length ? ' · diverged: ' + e(x.validatorAgreement.diverged.join(', ')) : ''}</span>`)}${x.key ? kv('Key', `<span class="m">${e(x.key.keyId)} · ${e(x.key.status)}</span>`) : ''}</table>`;
 
+let TOUR_ACTIVE = false;
+let TOUR_STEP = 0;
+let TOUR_MODAL = null; // 'welcome' | 'done' | null
+
+const TOUR_STEPS_BY_ROLE = {
+  SENDER: [
+    {
+      target: "main .c:first-of-type",
+      fallback: "aside",
+      view: "dash",
+      title: "Sender Command Center",
+      desc: "Welcome Commander. This dashboard tracks real-time DLT consensus health across all 5 validator nodes and summarizes your document lifecycle metrics.",
+      why: "Ensures you only authorize document distributions when independent validator nodes are synchronized and healthy."
+    },
+    {
+      target: "button[data-v='docs']",
+      fallback: "aside",
+      view: "dash",
+      title: "Documents Workspace",
+      desc: "Access the document hub to upload, encrypt, and authorize defense operational briefs for specific recipients.",
+      why: "Documents are encrypted at rest with AES-256-GCM before ever leaving local custody."
+    },
+    {
+      target: "#new-doc-card",
+      fallback: "main .c",
+      view: "docs",
+      title: "Create & Distribute Document",
+      desc: "Enter document name, security classification (RESTRICTED, CONFIDENTIAL, SECRET), and plaintext content into this sealing enclave.",
+      why: "Generates a single-use 256-bit Content Encryption Key (CEK) bound to document version and cryptographic SHA-256 hash."
+    },
+    {
+      target: "#recipients-group",
+      fallback: "#new-doc-card",
+      view: "docs",
+      title: "Authorized Recipient Selection",
+      desc: "Check off authorized personnel permitted to decrypt this document.",
+      why: "Creates SENDER-signed AUTHORIZATION transactions on the distributed ledger and establishes ML-KEM-768 key capsules."
+    },
+    {
+      target: "button[data-v='sess']",
+      fallback: "aside",
+      view: "docs",
+      title: "Decryption Sessions & Watermarks",
+      desc: "Inspect live recipient access sessions. Each time an authorized recipient decrypts, an individual session and watermark is generated.",
+      why: "Allows you to compare sessions side-by-side to verify unique invisible watermarking."
+    },
+    {
+      target: "button[data-v='led']",
+      fallback: "aside",
+      view: "docs",
+      title: "Distributed Provenance Ledger",
+      desc: "Review immutable blocks, key registrations, authorizations, and recipient decryption transactions.",
+      why: "Maintained independently by 5 air-gapped validator SQLite nodes to prevent unilateral history alteration."
+    },
+    {
+      target: "button[data-v='val']",
+      fallback: "aside",
+      view: "docs",
+      title: "Validator Consensus Status",
+      desc: "Inspect live node states, synchronization health, and quorum agreements across the 5 validator nodes.",
+      why: "Blocks only commit when a verified majority (at least 3 of 5 nodes) sign Ed25519 approvals."
+    },
+    {
+      target: ".top",
+      fallback: "main",
+      view: "dash",
+      title: "Sender Console Controls",
+      desc: "Displays active cryptographic mode, military UTC time ticker, current operator identity, role permissions, and tour replay controls.",
+      why: "Ensures complete session accountability and audit logging."
+    }
+  ],
+  RECIPIENT: [
+    {
+      target: "main .c:first-of-type",
+      fallback: "aside",
+      view: "dash",
+      title: "Recipient Command Center",
+      desc: "Welcome. This workspace confirms that the defense ledger is in consensus and displays your authorized document count and decryption activity.",
+      why: "Guarantees that your access attempts are evaluated against verified, quorum-backed ledger states."
+    },
+    {
+      target: "button[data-v='docs']",
+      fallback: "aside",
+      view: "dash",
+      title: "My Secure Documents",
+      desc: "View confidential documents that have been specifically authorized for your identity by senders.",
+      why: "Only documents where a valid AUTHORIZATION transaction exists on the ledger can be decrypted by your account."
+    },
+    {
+      target: "main .g2 .c:first-of-type",
+      fallback: "main .c",
+      view: "docs",
+      title: "Document Decryption & Evidence",
+      desc: "Click 'Decrypt' on an authorized document. The enclave unwraps the key capsule, renders the operational brief, and injects a traceable watermark.",
+      why: "Your device automatically signs a PROVENANCE transaction with ML-DSA-65 committing your decryption to the ledger."
+    },
+    {
+      target: "button[data-v='sess']",
+      fallback: "aside",
+      view: "docs",
+      title: "My Decryption Sessions",
+      desc: "Review all decryption sessions performed by your account, including unique watermark identifiers and ledger block anchors.",
+      why: "Provides personal auditability so you know exactly what provenance records exist under your cryptographic identity."
+    },
+    {
+      target: "button[data-v='id']",
+      fallback: "aside",
+      view: "docs",
+      title: "Cryptographic Identity & Key Rotation",
+      desc: "Inspect your public key registration (ML-DSA-65 / ML-KEM-768) and rotate your active key pair when required by security policy.",
+      why: "Rotated keys remain linked on the ledger, ensuring historical decryptions continue to verify mathematically without breaking attribution."
+    },
+    {
+      target: ".top",
+      fallback: "main",
+      view: "dash",
+      title: "Recipient Terminal Status",
+      desc: "Displays active encryption mode, live UTC clock, authenticated operator credentials, and the replay tour button.",
+      why: "Ensures you are operating inside an authenticated, traceable defense enclave session."
+    }
+  ],
+  INVESTIGATOR: [
+    {
+      target: "main .c:first-of-type",
+      fallback: "aside",
+      view: "dash",
+      title: "Investigator Command Center",
+      desc: "Welcome Investigator. This dashboard displays system-wide forensic investigation counts, verified attributions, and validator consensus health.",
+      why: "Forensic attribution relies on querying uncorrupted, majority-verified ledger blocks across all 5 validator nodes."
+    },
+    {
+      target: "button[data-v='inv']",
+      fallback: "aside",
+      view: "dash",
+      title: "Forensic Investigation Enclave",
+      desc: "Your primary workspace for analyzing leaked documents and reconstructing mathematical chains of custody.",
+      why: "Operates with zero bias: you supply only the leaked text artifact without selecting suspects or guessing recipients."
+    },
+    {
+      target: "main .c:first-of-type",
+      fallback: "main",
+      view: "inv",
+      title: "Leaked Artifact Ingestion",
+      desc: "Ingest simulated leaked text snippets or upload external .txt files recovered from unauthorized channels.",
+      why: "The forensic engine scans raw text for zero-width Unicode characters and recovers the embedded watermark ID."
+    },
+    {
+      target: "button[data-v='led']",
+      fallback: "aside",
+      view: "inv",
+      title: "Provenance Ledger Verification",
+      desc: "Inspect verified majority blocks, public key histories, and signed PROVENANCE records anchored across the validator network.",
+      why: "Allows independent signature verification (sigVerify) and tampering checks directly on committed transactions."
+    },
+    {
+      target: "button[data-v='val']",
+      fallback: "aside",
+      view: "inv",
+      title: "Validator Network & Quorum",
+      desc: "Verify validator synchronization states and ensure no node divergence or history rewriting has occurred.",
+      why: "Evidence is only legally sound when anchored by quorum (at least 3 of 5 independent nodes)."
+    },
+    {
+      target: "button[data-v='lab']",
+      fallback: "aside",
+      view: "inv",
+      title: "Security Test Lab",
+      desc: "Execute automated adversarial scenarios: altered watermarks, forged signatures, deleted blocks, and corrupted transactions.",
+      why: "Proves in real time that tampered evidence is rejected and cannot produce false positive attributions."
+    },
+    {
+      target: "button[data-v='aud']",
+      fallback: "aside",
+      view: "inv",
+      title: "Authoritative System Audit",
+      desc: "Compare authoritative immutable ledger events against non-authoritative operational logs.",
+      why: "Provides an undeniable audit trail of all operational events and investigative actions."
+    }
+  ],
+  ADMIN: [
+    {
+      target: "main .c:first-of-type",
+      fallback: "aside",
+      view: "dash",
+      title: "Administrator Command Center",
+      desc: "Welcome System Administrator. Full multi-node control and end-to-end consensus monitoring across all enclave modules.",
+      why: "Monitors ledger head consistency, validator quorum status, and system-wide operational metrics."
+    },
+    {
+      target: "button[data-v='docs']",
+      fallback: "aside",
+      view: "dash",
+      title: "Document Custody & Access",
+      desc: "Review all encrypted operational briefs, encryption algorithms, content hashes, and authorized recipient rosters.",
+      why: "Provides full administrative oversight of classified assets within the enclave."
+    },
+    {
+      target: "button[data-v='led']",
+      fallback: "aside",
+      view: "dash",
+      title: "Distributed Provenance Ledger",
+      desc: "Inspect raw block continuity, transaction payloads, and execute signature validation across all recorded events.",
+      why: "Confirms chain integrity and provides cryptographic proof of all document actions."
+    },
+    {
+      target: "button[data-v='val']",
+      fallback: "aside",
+      view: "dash",
+      title: "Validator Management & Attack Simulation",
+      desc: "Take nodes offline, force chain resynchronization, or execute attack simulations (e.g. modified transaction or deleted block).",
+      why: "Allows testing and demonstration of the system's Byzantine fault detection and consensus self-healing."
+    },
+    {
+      target: "button[data-v='id']",
+      fallback: "aside",
+      view: "val",
+      title: "Identities & Cryptographic Key Revocation",
+      desc: "Manage operator identities and revoke compromised public keys across the network.",
+      why: "Revoking a key prevents further authorizations while preserving historical attribution for existing signed records."
+    },
+    {
+      target: "button[data-v='lab']",
+      fallback: "aside",
+      view: "val",
+      title: "Security Test Lab",
+      desc: "Run comprehensive cryptographic suite checks against throw-away sandboxes to verify defense resistance.",
+      why: "Verifies zero-width detection, signature verification, and consensus validation before field deployment."
+    },
+    {
+      target: "button[data-v='aud']",
+      fallback: "aside",
+      view: "val",
+      title: "Immutable System Audit",
+      desc: "Review the authoritative ledger timeline alongside operational logs for complete accountability.",
+      why: "Provides unalterable evidence of all administrative interventions and operator interactions."
+    }
+  ]
+};
+
+function getTourSteps() {
+  const role = (ME && ME.role) || 'SENDER';
+  return TOUR_STEPS_BY_ROLE[role] || TOUR_STEPS_BY_ROLE.SENDER;
+}
+
 let HIW_MODE = 'dist'; // 'dist' | 'forensic'
 let HIW_STEP = 0;
 let HIW_AUTOPLAY = null;
@@ -1093,7 +1337,7 @@ async function draw() {
     ? `<span class="chip a" style="color:var(--ok);border-color:var(--ok)">CRYPTO: ${e(ENV.crypto.signatureAlgorithm)}</span>`
     : `<span class="chip a" title="${e(ENV?.crypto?.details || '')}">CRYPTO: ${e(ENV?.crypto?.signatureAlgorithm || 'Development Provider')}</span>`;
   const ledgerBadge = `<span class="chip" style="color:var(--mu)" title="${e(ENV?.ledger?.details || '')}">LEDGER: ${e(ENV?.ledger?.provider || 'Permissioned DLT')}</span>`;
-  A.innerHTML = `<aside><h1>PROVENANCE</h1>${nav.map(n => `<button class="nv ${V === n[0] ? 'on' : ''}" data-a="nav" data-v="${n[0]}">${n[1]}</button>`).join('')}</aside><main><div class="top">${modeBadge}${deployBadge}${cryptoBadge}${ledgerBadge}<span class="chip" style="color:var(--tx);border-color:var(--bd-light);background:var(--pn-elevated)"><span style="display:inline-block;width:6px;height:6px;background:var(--ok);border-radius:50%;margin-right:6px;box-shadow:0 0 6px var(--ok)"></span><span id="live-clock" class="m">${timeStr}</span></span><span style="flex:1"></span><span>${e(ME?.name || '')} <span class="mu m">${e(ME?.id || '')} · ${e(ME?.role || '')}</span></span><button class="s" data-a="show-change-pw">Key &amp; Password</button><button data-a="logout">Sign out</button></div>${OUT?.showChangePw ? `
+  A.innerHTML = `<aside><h1>PROVENANCE</h1>${nav.map(n => `<button class="nv ${V === n[0] ? 'on' : ''}" data-a="nav" data-v="${n[0]}">${n[1]}</button>`).join('')}</aside><main><div class="top">${modeBadge}${deployBadge}${cryptoBadge}${ledgerBadge}<span class="chip" style="color:var(--tx);border-color:var(--bd-light);background:var(--pn-elevated)"><span style="display:inline-block;width:6px;height:6px;background:var(--ok);border-radius:50%;margin-right:6px;box-shadow:0 0 6px var(--ok)"></span><span id="live-clock" class="m">${timeStr}</span></span><span style="flex:1"></span><span>${e(ME?.name || '')} <span class="mu m">${e(ME?.id || '')} · ${e(ME?.role || '')}</span></span><button class="s" data-a="tour-start" title="Replay Guided Walkthrough">Tour 🧭</button><button class="s" data-a="show-change-pw">Key &amp; Password</button><button data-a="logout">Sign out</button></div>${OUT?.showChangePw ? `
   <div class="c" style="margin-bottom:20px;border-left:4px solid var(--ac)">
     <div class="l" style="color:var(--ac)">Change Password &amp; Re-Seal Private Key Envelopes</div>
     <p class="mu" style="font-size:12px;margin:4px 0 12px">Re-derives your scrypt Key Encryption Key (KEK) and re-encrypts all your signing &amp; KEM private keys under your new secret. All previous login sessions are invalidated.</p>
@@ -1112,6 +1356,10 @@ async function draw() {
     renderDemoSpotlight();
   } else {
     removeDemoSpotlight();
+  }
+
+  if (TOUR_MODAL || TOUR_ACTIVE) {
+    renderTour();
   }
 
   if (TARGET_HIGHLIGHT && V === 'led') {
@@ -1533,6 +1781,140 @@ function renderDemoSpotlight() {
     if (!DEMO_SESSION_ID || !DEMO_DATA) return;
     runStepMicroInteractions(DEMO_DATA.step);
   }, 50);
+}
+
+function renderTour() {
+  const old = $('tour-root');
+  if (old) old.remove();
+
+  if (TOUR_MODAL === 'welcome') {
+    const d = document.createElement('div');
+    d.id = 'tour-root';
+    d.innerHTML = `
+      <div class="tour-backdrop"></div>
+      <div class="tour-center-modal">
+        <div class="l" style="color:var(--ac);margin-bottom:8px">SECURITY ENCLAVE · OPERATOR ONBOARDING</div>
+        <h3>WELCOME TO THE WORKSPACE</h3>
+        <p>Let's take a quick interactive walkthrough to show you where everything is and how to operate the defense console interface.</p>
+        <div class="tour-center-actions">
+          <button class="hiw-hero-btn primary" data-a="tour-begin" style="font-size:13px;padding:9px 18px">▶ START TOUR</button>
+          <button class="s" data-a="tour-skip" style="font-size:13px;padding:9px 16px">SKIP FOR NOW</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(d);
+    return;
+  }
+
+  if (TOUR_MODAL === 'done') {
+    const d = document.createElement('div');
+    d.id = 'tour-root';
+    d.innerHTML = `
+      <div class="tour-backdrop"></div>
+      <div class="tour-center-modal">
+        <div class="l" style="color:var(--ok);margin-bottom:8px">ONBOARDING COMPLETED</div>
+        <h3>YOU'RE READY TO OPERATE</h3>
+        <p>You now know how documents are protected, authorized, committed to the ledger, and forensically attributed. You can replay this tour anytime from the top bar.</p>
+        <div class="tour-center-actions">
+          <button class="hiw-hero-btn primary" data-a="tour-close" style="font-size:13px;padding:9px 24px">EXPLORE WORKSPACE</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(d);
+    return;
+  }
+
+  if (!TOUR_ACTIVE) return;
+
+  const steps = getTourSteps();
+  const step = steps[TOUR_STEP];
+  if (!step) {
+    TOUR_ACTIVE = false;
+    TOUR_MODAL = 'done';
+    renderTour();
+    return;
+  }
+
+  // Ensure appropriate view is selected
+  if (step.view && V !== step.view) {
+    V = step.view;
+    draw();
+    return;
+  }
+
+  let el = document.querySelector(step.target);
+  if (!el && step.fallback) el = document.querySelector(step.fallback);
+  if (!el) el = document.querySelector('main');
+
+  const rect = el ? el.getBoundingClientRect() : { top: 120, left: 100, width: 300, height: 100 };
+
+  // Scroll into view if offscreen
+  if (el && (rect.top < 0 || rect.bottom > window.innerHeight)) {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  const d = document.createElement('div');
+  d.id = 'tour-root';
+
+  // Calculate tooltip placement outside the spotlight bounds
+  const hasRoomRight = rect.right + 360 < window.innerWidth;
+  const hasRoomBelow = rect.bottom + 260 < window.innerHeight;
+  const hasRoomLeft = rect.left > 360;
+
+  let tipLeft = 20;
+  let tipTop = 80;
+  let arrowClass = 'top';
+
+  if (hasRoomRight) {
+    tipLeft = rect.right + 18;
+    tipTop = Math.max(70, Math.min(window.innerHeight - 300, rect.top));
+    arrowClass = 'left';
+  } else if (hasRoomBelow) {
+    tipLeft = Math.max(20, Math.min(window.innerWidth - 370, rect.left));
+    tipTop = rect.bottom + 18;
+    arrowClass = 'top';
+  } else if (hasRoomLeft) {
+    tipLeft = Math.max(20, rect.left - 365);
+    tipTop = Math.max(70, Math.min(window.innerHeight - 300, rect.top));
+    arrowClass = 'right';
+  } else {
+    // Top fallback
+    tipLeft = Math.max(20, Math.min(window.innerWidth - 370, rect.left));
+    tipTop = Math.max(70, rect.top - 240);
+    arrowClass = 'bottom';
+  }
+
+  document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
+  if (el) el.classList.add('tour-highlighted-element');
+
+  d.innerHTML = `
+    <div class="tour-spotlight-box" style="
+      top: ${rect.top - 4 + window.scrollY}px;
+      left: ${rect.left - 4}px;
+      width: ${rect.width + 8}px;
+      height: ${rect.height + 8}px;
+    "></div>
+    <div class="tour-tooltip-card" style="top: ${tipTop + window.scrollY}px; left: ${tipLeft}px">
+      <div class="tour-pointer-arrow ${arrowClass}"></div>
+      <div class="tour-header">
+        <span class="tour-step-tag">STEP ${TOUR_STEP + 1} OF ${steps.length}</span>
+        <button type="button" class="s" data-a="tour-skip" style="font-size:10.5px;padding:2px 6px">Skip</button>
+      </div>
+      <h4 class="tour-title">${e(step.title)}</h4>
+      <div class="tour-desc">${e(step.desc)}</div>
+      <div class="tour-why-box">
+        <b>Why it matters:</b>
+        ${e(step.why)}
+      </div>
+      <div class="tour-footer">
+        <button class="s" data-a="tour-back" ${TOUR_STEP === 0 ? 'disabled' : ''}>◀ Back</button>
+        <div class="tour-footer-right">
+          <button class="p s" data-a="tour-next">${TOUR_STEP === steps.length - 1 ? 'Finish Tour ✓' : 'Next ▶'}</button>
+        </div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(d);
 }
 
 function renderPublicHowItWorks() {
@@ -1998,6 +2380,53 @@ document.addEventListener('click', async ev => {
     HIW_SHOW_TECH = !HIW_SHOW_TECH;
     return draw();
   }
+  if (a === 'tour-start') {
+    TOUR_STEP = 0;
+    TOUR_MODAL = null;
+    TOUR_ACTIVE = true;
+    V = 'dash';
+    return draw();
+  }
+  if (a === 'tour-begin') {
+    TOUR_MODAL = null;
+    TOUR_ACTIVE = true;
+    TOUR_STEP = 0;
+    V = 'dash';
+    return draw();
+  }
+  if (a === 'tour-next') {
+    const steps = getTourSteps();
+    if (TOUR_STEP < steps.length - 1) {
+      TOUR_STEP++;
+      return draw();
+    } else {
+      TOUR_ACTIVE = false;
+      TOUR_MODAL = 'done';
+      localStorage.setItem('sih_tour_done_' + (ME ? ME.id : 'anon'), '1');
+      return draw();
+    }
+  }
+  if (a === 'tour-back') {
+    if (TOUR_STEP > 0) TOUR_STEP--;
+    return draw();
+  }
+  if (a === 'tour-skip') {
+    TOUR_ACTIVE = false;
+    TOUR_MODAL = null;
+    localStorage.setItem('sih_tour_done_' + (ME ? ME.id : 'anon'), '1');
+    document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
+    const old = $('tour-root');
+    if (old) old.remove();
+    return;
+  }
+  if (a === 'tour-close') {
+    TOUR_MODAL = null;
+    TOUR_ACTIVE = false;
+    document.querySelectorAll('.tour-highlighted-element').forEach(node => node.classList.remove('tour-highlighted-element'));
+    const old = $('tour-root');
+    if (old) old.remove();
+    return;
+  }
   if (a === 'switch-auth-tab') {
     PUB_VIEW = v;
     return draw();
@@ -2020,6 +2449,9 @@ document.addEventListener('click', async ev => {
     sessionStorage.setItem('me', JSON.stringify(ME));
     V = 'dash';
     OUT = null;
+    TOUR_MODAL = 'welcome';
+    TOUR_STEP = 0;
+    TOUR_ACTIVE = false;
     toast(`Identity registered: ${r.user.id} (${r.user.role})`);
   });
   if (a === 'login') return go(async () => {
@@ -2030,10 +2462,24 @@ document.addEventListener('click', async ev => {
     sessionStorage.setItem('me', JSON.stringify(ME));
     V = 'dash';
     OUT = null;
+    // Check if this user has completed the onboarding tour
+    const done = localStorage.getItem('sih_tour_done_' + ME.id);
+    if (!done) {
+      TOUR_MODAL = 'welcome';
+      TOUR_STEP = 0;
+      TOUR_ACTIVE = false;
+    } else {
+      TOUR_MODAL = null;
+      TOUR_ACTIVE = false;
+    }
   });
   if (a === 'reset') return go(async () => { await api('/reset', 'POST', {}); toast('Demo environment reset'); });
   if (a === 'logout') {
     try { await api('/auth/logout', 'POST', {}); } catch {}
+    TOUR_ACTIVE = false;
+    TOUR_MODAL = null;
+    const old = $('tour-root');
+    if (old) old.remove();
     return signout();
   }
   if (a === 'nav') {

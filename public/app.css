@@ -2388,6 +2388,210 @@ pre {
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
 }
 
+/* ==========================================================================
+   FIRST-TIME USER ONBOARDING TOUR & SPOTLIGHT SYSTEM
+   ========================================================================== */
+
+/* Dark Backdrop Overlay with cutout spotlight effect */
+.tour-backdrop {
+  display: none; /* Replaced by transparent spotlight cutout mask */
+}
+
+/* Visual Spotlight Frame around Target with clear window */
+.tour-spotlight-box {
+  position: absolute;
+  border-radius: 8px;
+  background: transparent !important;
+  box-shadow: 0 0 0 9999px rgba(4, 7, 12, 0.72),
+              0 0 20px rgba(56, 189, 248, 0.4),
+              inset 0 0 0 2px var(--ac);
+  z-index: 99980;
+  pointer-events: none;
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: tourPulse 2s infinite alternate;
+}
+
+@keyframes tourPulse {
+  0% { box-shadow: 0 0 0 9999px rgba(4, 7, 12, 0.72), 0 0 16px rgba(56, 189, 248, 0.3), inset 0 0 0 2px var(--ac); }
+  100% { box-shadow: 0 0 0 9999px rgba(4, 7, 12, 0.72), 0 0 28px rgba(56, 189, 248, 0.6), inset 0 0 0 2px #7dd3fc; }
+}
+
+/* Focused Highlight on Target Element to ensure 100% clarity and text readability */
+.tour-highlighted-element {
+  position: relative !important;
+  z-index: 99985 !important;
+  background-color: var(--pn-elevated) !important;
+  color: var(--tx) !important;
+  border-radius: 6px !important;
+}
+
+/* Tour Tooltip Card */
+.tour-tooltip-card {
+  position: absolute;
+  z-index: 99990;
+  background: var(--pn-elevated);
+  border: 1px solid var(--ac-border);
+  border-radius: 8px;
+  padding: 18px 22px;
+  width: 340px;
+  max-width: 90vw;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.75), var(--shadow-glow-ac);
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: tourFadeIn 0.25s ease-out;
+}
+
+@keyframes tourFadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.tour-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.tour-step-tag {
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--ac);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.tour-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--tx);
+  margin: 0 0 6px;
+}
+
+.tour-desc {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--tx-secondary);
+  margin: 0 0 12px;
+}
+
+.tour-why-box {
+  background: var(--bg-base);
+  border: 1px solid var(--bd-subtle);
+  border-left: 3px solid var(--ac);
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--tx-secondary);
+  margin-bottom: 14px;
+}
+
+.tour-why-box b {
+  color: var(--ac);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  display: block;
+  margin-bottom: 2px;
+}
+
+.tour-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--bd-subtle);
+  padding-top: 12px;
+}
+
+.tour-footer-right {
+  display: flex;
+  gap: 8px;
+}
+
+/* Subtle Pointer Arrow */
+.tour-pointer-arrow {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: var(--pn-elevated);
+  border: 1px solid var(--ac-border);
+  transform: rotate(45deg);
+  z-index: 99989;
+}
+
+.tour-pointer-arrow.top {
+  top: -7px;
+  left: 30px;
+  border-bottom: none;
+  border-right: none;
+}
+
+.tour-pointer-arrow.bottom {
+  bottom: -7px;
+  left: 30px;
+  border-top: none;
+  border-left: none;
+}
+
+.tour-pointer-arrow.left {
+  left: -7px;
+  top: 25px;
+  border-top: none;
+  border-right: none;
+}
+
+.tour-pointer-arrow.right {
+  right: -7px;
+  top: 25px;
+  border-bottom: none;
+  border-left: none;
+}
+
+/* Welcome & Tour Completed Center Modals */
+.tour-center-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 99995;
+  background: var(--pn-elevated);
+  border: 1px solid var(--bd-light);
+  border-radius: 12px;
+  padding: 32px 30px;
+  width: 440px;
+  max-width: 90vw;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.85), var(--shadow-glow-ac);
+  animation: tourPop 0.25s ease-out;
+}
+
+@keyframes tourPop {
+  from { opacity: 0; transform: translate(-50%, -46%) scale(0.97); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+.tour-center-modal h3 {
+  font-size: 20px;
+  font-weight: 800;
+  margin: 0 0 10px;
+  color: var(--tx);
+}
+
+.tour-center-modal p {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--tx-secondary);
+  margin: 0 0 24px;
+}
+
+.tour-center-actions {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+
 
 
 
