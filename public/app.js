@@ -56,6 +56,7 @@ async function api(p, m = 'GET', b) {
   return j;
 }
 const tag = (ok, a = 'VALID', b = 'INVALID') => `<span class="tag ${ok ? 'ok' : 'er'}">${ok ? a : b}</span>`;
+const syncTag = n => `<span class="tag ${n.sync === 'IN_SYNC' ? 'ok' : n.sync === 'BEHIND' ? 'wr' : 'er'}">${e(n.sync || 'UNKNOWN')}</span>`;
 const kv = (a, b) => `<tr><td class="l">${a}</td><td>${b}</td></tr>`;
 const NAV = {
   SENDER: [['dash', 'Command center'], ['how', 'How it works'], ['docs', 'Documents'], ['sess', 'Sessions'], ['led', 'Provenance ledger'], ['val', 'Validators'], ['aud', 'Audit']],
